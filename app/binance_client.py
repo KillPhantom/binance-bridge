@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import time
+from decimal import Decimal
+from typing import Any
+from urllib.parse import urlencode
+
+import httpx
+
+from .config import Settings
+from .models import Position
+from .utils import decimal_string
+
+
+class BinanceAPIError(RuntimeError):
+    def __init__(self, status_code: int, message: str):
+        super().__init__(f"Binance API error ({status_code}): {message}")
+        self.status_code = status_code
+
+
+class BinanceClient:
+    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None):
+        self.settings = settings
+        self.client = client or httpx.AsyncClient(base_url=settings.binance_base_url, timeout=10.0)
+        self._owns_client = client is None
+        self._time_offset_ms = 0
+        self._exchange_info: dict[str, Any] | None = None
+
+    @property
+    def dry_run(self) -> bool:
+        return self.settings.dry_run
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self.client.aclose()
+
+    async def get_account_time_or_server_time_if_needed(self) -> int:
+        if self.dry_run:
+            return int(time.time() * 1000)
+        response = await self.client.get("/fapi/v1/time")
+        self._raise_for_error(response)
+        server_time = int(response.json()["serverTime"])
+        self._time_offset_ms = server_time - int(time.time() * 1000)
+        return server_time
+
+    async def signed_request(
+        self, method: str, path: str, params: dict[str, Any] | None = None
+    ) -> Any:
+        if not self.settings.binance_api_key or not self.settings.binance_api_secret:
+            raise BinanceAPIError(0, "API credentials are not configured")
+        for attempt in range(2):
+            request_params = dict(params or {})
+            request_params["timestamp"] = int(time.time() * 1000) + self._time_offset_ms
+            request_params["recvWindow"] = self.settings.recv_window
+            normalized = {
+                key: (str(value).lower() if isinstance(value, bool) else value)
+                for key, value in request_params.items()
+            }
+            query = urlencode(normalized)
+            signature = hmac.new(
+                self.settings.binance_api_secret.encode(), query.encode(), hashlib.sha256
+            ).hexdigest()
+            url = f"{path}?{query}&signature={signature}"
+            response = await self.client.request(
+                method.upper(), url, headers={"X-MBX-APIKEY": self.settings.binance_api_key}
+            )
+            if response.status_code == 400 and attempt == 0:
+                try:
+                    if response.json().get("code") == -1021:
+                        await self.get_account_time_or_server_time_if_needed()
+                        continue
+                except (ValueError, AttributeError):
+                    pass
+            self._raise_for_error(response)
+            return response.json()
+        raise BinanceAPIError(400, "timestamp remained out of sync after one retry")
+
+    @staticmethod
+    def _raise_for_error(response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        try:
+            body = response.json()
+            message = body.get("msg", str(body)) if isinstance(body, dict) else str(body)
+        except ValueError:
+            message = response.text[:500]
+        raise BinanceAPIError(response.status_code, message)
+
+    async def get_position(self, symbol: str) -> Position:
+        if self.dry_run:
+            return Position(symbol=symbol, amount=Decimal("0"), raw={"symbol": symbol, "positionAmt": "0", "dryRun": True})
+        rows = await self.signed_request("GET", "/fapi/v3/positionRisk", {"symbol": symbol})
+        row = next((item for item in rows if item.get("symbol") == symbol), None)
+        if row is None:
+            raise BinanceAPIError(200, f"position not returned for {symbol}")
+        if row.get("positionSide", "BOTH") != "BOTH":
+            raise BinanceAPIError(200, "account is not in One-way Mode (positionSide BOTH)")
+        return Position(symbol=symbol, amount=Decimal(row["positionAmt"]), raw=row)
+
+    async def get_mark_price(self, symbol: str) -> Decimal:
+        if self.dry_run:
+            return Decimal("1")
+        response = await self.client.get("/fapi/v1/premiumIndex", params={"symbol": symbol})
+        self._raise_for_error(response)
+        return Decimal(response.json()["markPrice"])
+
+    async def get_exchange_info(self) -> dict[str, Any]:
+        if self.dry_run:
+            return {"symbols": [{"symbol": symbol, "filters": [
+                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"}
+            ]} for symbol in self.settings.allowed_symbols]}
+        if self._exchange_info is None:
+            response = await self.client.get("/fapi/v1/exchangeInfo")
+            self._raise_for_error(response)
+            self._exchange_info = response.json()
+        return self._exchange_info
+
+    async def get_symbol_filters(self, symbol: str) -> dict[str, dict[str, Any]]:
+        info = await self.get_exchange_info()
+        item = next((s for s in info["symbols"] if s["symbol"] == symbol), None)
+        if item is None:
+            raise ValueError(f"symbol {symbol} not found in exchange info")
+        return {f["filterType"]: f for f in item["filters"]}
+
+    async def cancel_all_open_orders(self, symbol: str) -> dict[str, Any]:
+        if self.dry_run:
+            return {"dryRun": True, "operation": "cancel_all", "symbol": symbol}
+        return await self.signed_request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": symbol})
+
+    async def place_market_order(
+        self, symbol: str, side: str, quantity: Decimal, reduce_only: bool
+    ) -> dict[str, Any]:
+        params = {
+            "symbol": symbol,
+            "side": side,
+            "positionSide": "BOTH",
+            "type": "MARKET",
+            "quantity": decimal_string(quantity),
+            "reduceOnly": reduce_only,
+            "newOrderRespType": "RESULT",
+        }
+        if self.dry_run:
+            return {"dryRun": True, **params}
+        return await self.signed_request("POST", "/fapi/v1/order", params)
