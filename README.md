@@ -34,7 +34,7 @@ chmod +x scripts/*.sh
 Run tests in another terminal:
 
 ```bash
-venv/bin/pytest -q
+venv/bin/python -m pytest -q
 ```
 
 Health and dry-run webhook checks:
