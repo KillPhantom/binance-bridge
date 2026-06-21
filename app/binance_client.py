@@ -92,6 +92,27 @@ class BinanceClient:
         if self.dry_run:
             return Position(symbol=symbol, amount=Decimal("0"), raw={"symbol": symbol, "positionAmt": "0", "dryRun": True})
         rows = await self.signed_request("GET", "/fapi/v3/positionRisk", {"symbol": symbol})
+        if not isinstance(rows, list):
+            raise BinanceAPIError(200, "unexpected positionRisk response format")
+        if not rows:
+            mode = await self.signed_request("GET", "/fapi/v1/positionSide/dual")
+            dual_side = mode.get("dualSidePosition") if isinstance(mode, dict) else None
+            if dual_side is not False and str(dual_side).lower() != "false":
+                raise BinanceAPIError(
+                    200, "cannot treat empty position response as flat unless One-way Mode is confirmed"
+                )
+            return Position(
+                symbol=symbol,
+                amount=Decimal("0"),
+                raw={
+                    "symbol": symbol,
+                    "positionAmt": "0",
+                    "positionSide": "BOTH",
+                    "inferredFlatFromEmptyResponse": True,
+                },
+            )
+        if not all(isinstance(item, dict) for item in rows):
+            raise BinanceAPIError(200, "unexpected positionRisk row format")
         row = next((item for item in rows if item.get("symbol") == symbol), None)
         if row is None:
             raise BinanceAPIError(200, f"position not returned for {symbol}")

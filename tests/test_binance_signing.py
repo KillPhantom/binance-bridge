@@ -6,8 +6,9 @@ from urllib.parse import urlencode
 import httpx
 import pytest
 
-from app.binance_client import BinanceClient
+from app.binance_client import BinanceAPIError, BinanceClient
 from app.config import Settings
+from app.models import Position
 
 
 @pytest.mark.asyncio
@@ -55,4 +56,47 @@ async def test_cancel_opening_orders_preserves_close_and_opposite_orders():
 
     assert result["canceledOrderIds"] == [1]
     client.cancel_order.assert_awaited_once_with("BTCUSDT", 1)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_empty_position_response_is_flat_only_after_one_way_confirmation():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        side_effect=[[], {"dualSidePosition": False}]
+    )
+
+    result = await client.get_position("BTCUSDT")
+
+    assert result == Position(
+        symbol="BTCUSDT",
+        amount=0,
+        raw={
+            "symbol": "BTCUSDT",
+            "positionAmt": "0",
+            "positionSide": "BOTH",
+            "inferredFlatFromEmptyResponse": True,
+        },
+    )
+    assert client.signed_request.await_args_list[1].args == (
+        "GET", "/fapi/v1/positionSide/dual"
+    )
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_empty_position_response_is_rejected_in_hedge_mode():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        side_effect=[[], {"dualSidePosition": True}]
+    )
+
+    with pytest.raises(BinanceAPIError, match="One-way Mode"):
+        await client.get_position("BTCUSDT")
     await client.close()
