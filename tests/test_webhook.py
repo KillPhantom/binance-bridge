@@ -22,12 +22,13 @@ def make_app(tmp_path, client=None):
         Position(symbol="BTCUSDT", amount=0),
         Position(symbol="BTCUSDT", amount=0.002),
     ]
-    client.get_mark_price.return_value = Decimal("40000")
     client.get_symbol_filters.return_value = {
-        "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"}
+        "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"},
+        "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
     }
     client.cancel_all_open_orders.return_value = {"code": 200}
     client.place_market_order.return_value = {"orderId": 42}
+    client.place_limit_order.return_value = {"orderId": 43}
     store = EventStore(settings.sqlite_path)
     return create_app(settings, store, client), store, client
 
@@ -38,7 +39,8 @@ def payload(**changes):
         "event_id": "event-1",
         "symbol": "BTCUSDT",
         "action": "open_long",
-        "notional": 80,
+        "price": 40000,
+        "amount": 0.002,
         "source": "tradingview",
         "strategy": "test",
     }
@@ -54,7 +56,7 @@ def test_duplicate_success_does_not_place_duplicate_order(tmp_path):
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.json()["duplicate"] is True
-    assert binance.place_market_order.await_count == 1
+    assert binance.place_limit_order.await_count == 1
 
 
 def test_wrong_token_rejected(tmp_path):
@@ -62,7 +64,7 @@ def test_wrong_token_rejected(tmp_path):
     with TestClient(app) as http:
         response = http.post("/webhook/tradingview", json=payload(token="wrong"))
     assert response.status_code == 401
-    binance.place_market_order.assert_not_awaited()
+    binance.place_limit_order.assert_not_awaited()
 
 
 def test_unsupported_symbol_rejected(tmp_path):
@@ -70,7 +72,17 @@ def test_unsupported_symbol_rejected(tmp_path):
     with TestClient(app) as http:
         response = http.post("/webhook/tradingview", json=payload(symbol="DOGEUSDT"))
     assert response.status_code == 400
-    binance.place_market_order.assert_not_awaited()
+    binance.place_limit_order.assert_not_awaited()
+
+
+def test_open_action_requires_price_and_amount(tmp_path):
+    app, _, binance = make_app(tmp_path)
+    with TestClient(app) as http:
+        response = http.post(
+            "/webhook/tradingview", json=payload(price=None, amount=None)
+        )
+    assert response.status_code == 400
+    binance.place_limit_order.assert_not_awaited()
 
 
 def test_binance_failure_marks_event_failed(tmp_path):

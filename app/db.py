@@ -35,6 +35,8 @@ class EventStore:
                     symbol TEXT NOT NULL,
                     action TEXT NOT NULL,
                     notional REAL,
+                    price REAL,
+                    amount REAL,
                     payload_json TEXT NOT NULL,
                     status TEXT NOT NULL,
                     error TEXT,
@@ -44,6 +46,13 @@ class EventStore:
                 )
                 """
             )
+            columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(events)").fetchall()
+            }
+            if "price" not in columns:
+                db.execute("ALTER TABLE events ADD COLUMN price REAL")
+            if "amount" not in columns:
+                db.execute("ALTER TABLE events ADD COLUMN amount REAL")
 
     def claim(self, signal: TradingViewSignal, payload: dict[str, Any]) -> ClaimResult:
         now = datetime.now(timezone.utc).isoformat()
@@ -58,9 +67,17 @@ class EventStore:
             if row is None:
                 db.execute(
                     """INSERT INTO events
-                    (event_id, received_at, symbol, action, notional, payload_json, status)
-                    VALUES (?, ?, ?, ?, ?, ?, 'processing')""",
-                    (signal.event_id, now, signal.symbol, signal.action, signal.notional, encoded),
+                    (event_id, received_at, symbol, action, price, amount, payload_json, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'processing')""",
+                    (
+                        signal.event_id,
+                        now,
+                        signal.symbol,
+                        signal.action,
+                        float(signal.price) if signal.price is not None else None,
+                        float(signal.amount) if signal.amount is not None else None,
+                        encoded,
+                    ),
                 )
                 return "claimed"
             if row["status"] == "success":
@@ -70,10 +87,18 @@ class EventStore:
             if not signal.retry:
                 return "failed_needs_retry"
             db.execute(
-                """UPDATE events SET received_at=?, symbol=?, action=?, notional=?,
+                """UPDATE events SET received_at=?, symbol=?, action=?, price=?, amount=?,
                 payload_json=?, status='processing', error=NULL, position_before_json=NULL,
                 position_after_json=NULL, binance_responses_json=NULL WHERE event_id=?""",
-                (now, signal.symbol, signal.action, signal.notional, encoded, signal.event_id),
+                (
+                    now,
+                    signal.symbol,
+                    signal.action,
+                    float(signal.price) if signal.price is not None else None,
+                    float(signal.amount) if signal.amount is not None else None,
+                    encoded,
+                    signal.event_id,
+                ),
             )
             return "claimed"
 

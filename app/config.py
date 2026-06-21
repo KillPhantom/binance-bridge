@@ -30,7 +30,6 @@ class Settings(BaseModel):
     binance_api_secret: str = ""
     binance_base_url: str = "https://fapi.binance.com"
     allowed_symbols: frozenset[str] = frozenset({"BTCUSDT", "ETHUSDT"})
-    default_notional_usdt: float = Field(default=80, gt=0)
     allow_add: bool = True
     dry_run: bool = True
     recv_window: int = Field(default=5000, ge=1, le=60000)
@@ -55,7 +54,6 @@ class Settings(BaseModel):
             binance_api_secret=os.getenv("BINANCE_API_SECRET", ""),
             binance_base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
             allowed_symbols=os.getenv("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT"),
-            default_notional_usdt=os.getenv("DEFAULT_NOTIONAL_USDT", "80"),
             allow_add=_env_bool("ALLOW_ADD", True),
             dry_run=_env_bool("DRY_RUN", True),
             recv_window=os.getenv("RECV_WINDOW", "5000"),

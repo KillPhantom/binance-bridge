@@ -24,9 +24,9 @@ class RiskEngine:
     async def handle_signal(self, signal: TradingViewSignal) -> ExecutionResult:
         async with self._symbol_locks[signal.symbol]:
             if signal.action == "open_long":
-                return await self.open_long(signal.symbol, signal.notional or self.settings.default_notional_usdt)
+                return await self.open_long(signal.symbol, signal.price, signal.amount)
             if signal.action == "open_short":
-                return await self.open_short(signal.symbol, signal.notional or self.settings.default_notional_usdt)
+                return await self.open_short(signal.symbol, signal.price, signal.amount)
             if signal.action == "close_long":
                 return await self.close_long(signal.symbol)
             if signal.action == "close_short":
@@ -50,26 +50,33 @@ class RiskEngine:
                 raise PositionTimeoutError(f"{symbol} did not become flat before timeout")
             await asyncio.sleep(self.settings.position_poll_interval)
 
-    async def _opening_quantity(self, symbol: str, notional: float) -> Decimal:
-        price = await self.client.get_mark_price(symbol)
-        if price <= 0:
-            raise ValueError("mark price must be positive")
+    async def _normalize_limit_order(
+        self, symbol: str, price: Decimal, amount: Decimal
+    ) -> tuple[Decimal, Decimal]:
         filters = await self.client.get_symbol_filters(symbol)
         lot = filters.get("LOT_SIZE") or filters.get("MARKET_LOT_SIZE")
         if not lot:
             raise ValueError(f"LOT_SIZE filter unavailable for {symbol}")
-        quantity = round_step_size(Decimal(str(notional)) / price, Decimal(lot["stepSize"]))
+        price_filter = filters.get("PRICE_FILTER")
+        if not price_filter:
+            raise ValueError(f"PRICE_FILTER unavailable for {symbol}")
+        quantity = round_step_size(amount, Decimal(lot["stepSize"]))
+        normalized_price = round_step_size(price, Decimal(price_filter["tickSize"]))
         minimum = Decimal(lot["minQty"])
         if quantity < minimum:
-            raise ValueError(f"calculated quantity {quantity} is below minimum {minimum}")
+            raise ValueError(f"order amount {quantity} is below minimum {minimum}")
         notional_filter = filters.get("MIN_NOTIONAL") or filters.get("NOTIONAL")
         if notional_filter:
             minimum_notional = Decimal(str(notional_filter.get("notional") or notional_filter.get("minNotional") or "0"))
-            if quantity * price < minimum_notional:
-                raise ValueError("calculated order is below Binance minimum notional")
-        return quantity
+            if quantity * normalized_price < minimum_notional:
+                raise ValueError("limit order is below Binance minimum notional")
+        return normalized_price, quantity
 
-    async def _open(self, symbol: str, notional: float, target: str) -> ExecutionResult:
+    async def _open(
+        self, symbol: str, price: Decimal | None, amount: Decimal | None, target: str
+    ) -> ExecutionResult:
+        if price is None or amount is None:
+            raise ValueError("open actions require price and amount")
         responses: list[dict[str, Any]] = []
         responses.append(await self.client.cancel_all_open_orders(symbol))
         before = await self.client.get_position(symbol)
@@ -89,22 +96,33 @@ class RiskEngine:
                 position_after=self._position_dict(after),
                 binance_responses=responses,
             )
-        quantity = await self._opening_quantity(symbol, notional)
+        normalized_price, quantity = await self._normalize_limit_order(symbol, price, amount)
         side = "BUY" if target == "long" else "SELL"
-        responses.append(await self.client.place_market_order(symbol, side, quantity, False))
+        responses.append(
+            await self.client.place_limit_order(
+                symbol, side, quantity, normalized_price, False
+            )
+        )
         after = await self.client.get_position(symbol)
         return ExecutionResult(
-            summary=f"{target} opening order submitted for {quantity} {symbol}",
+            summary=(
+                f"{target} LIMIT GTC order submitted for {quantity} {symbol} "
+                f"at {normalized_price}"
+            ),
             position_before=self._position_dict(before),
             position_after=self._position_dict(after),
             binance_responses=responses,
         )
 
-    async def open_long(self, symbol: str, notional: float) -> ExecutionResult:
-        return await self._open(symbol, notional, "long")
+    async def open_long(
+        self, symbol: str, price: Decimal, amount: Decimal
+    ) -> ExecutionResult:
+        return await self._open(symbol, price, amount, "long")
 
-    async def open_short(self, symbol: str, notional: float) -> ExecutionResult:
-        return await self._open(symbol, notional, "short")
+    async def open_short(
+        self, symbol: str, price: Decimal, amount: Decimal
+    ) -> ExecutionResult:
+        return await self._open(symbol, price, amount, "short")
 
     async def _close(self, symbol: str, target: str) -> ExecutionResult:
         responses: list[dict[str, Any]] = []

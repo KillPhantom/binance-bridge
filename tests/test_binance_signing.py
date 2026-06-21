@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+from decimal import Decimal
 from unittest.mock import AsyncMock
 from urllib.parse import urlencode
 
@@ -99,4 +100,34 @@ async def test_empty_position_response_is_rejected_in_hedge_mode():
 
     with pytest.raises(BinanceAPIError, match="One-way Mode"):
         await client.get_position("BTCUSDT")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_limit_order_sends_passed_price_and_amount_as_gtc():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(return_value={"orderId": 9})
+
+    await client.place_limit_order(
+        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10")
+    )
+
+    assert client.signed_request.await_args.args == (
+        "POST",
+        "/fapi/v1/order",
+        {
+            "symbol": "BTCUSDT",
+            "side": "BUY",
+            "positionSide": "BOTH",
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "quantity": "0.002",
+            "price": "40000.10",
+            "reduceOnly": False,
+            "newOrderRespType": "RESULT",
+        },
+    )
     await client.close()

@@ -1,17 +1,18 @@
 # TradingView → Binance USDⓈ-M Futures bridge
 
-A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M Futures in **One-way Mode** (`positionSide=BOTH`). It makes Binance's real position authoritative, closes an opposite position with a reduce-only market order, confirms the account is flat, and only then opens the requested side.
+A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M Futures in **One-way Mode** (`positionSide=BOTH`). Opening signals place `LIMIT GTC` orders using the webhook's `price` and `amount`. The bridge makes Binance's real position authoritative, closes an opposite position with a reduce-only market order, confirms the account is flat, and only then submits the requested opening order.
 
-> Start with `DRY_RUN=true`. This software can place real market orders when dry-run is disabled. Review it, use Binance's testnet first, restrict the API key to futures trading (never withdrawals), and add an IP restriction where possible.
+> Start with `DRY_RUN=true`. This software can place real limit and market orders when dry-run is disabled. Review it, use Binance's testnet first, restrict the API key to futures trading (never withdrawals), and add an IP restriction where possible.
 
 ## Safety model
 
 - SQLite event IDs prevent duplicate execution. Successful duplicates return 200; processing duplicates return 409; failed events require `"retry": true`.
 - A per-symbol lock prevents concurrent signals in one Uvicorn worker from racing on the same position. The supplied service deliberately uses one worker; scaling to multiple processes requires a cross-process lock or queue.
 - Reversals cancel open orders, close the full opposite position with `reduceOnly=true`, poll until flat, and abort on timeout rather than opening anyway.
+- Opening `price` and `amount` are rounded down to Binance `PRICE_FILTER.tickSize` and `LOT_SIZE.stepSize`, then checked against minimum quantity and notional filters.
 - `close_long` cancels pending non-reduce-only BUY opening orders before closing; `close_short` does the same for SELL opening orders. Reduce-only and close-position protection orders are preserved.
 - The webhook token is compared safely and is redacted before payload storage. API secrets are read only from the environment and are never logged.
-- `DRY_RUN=true` makes no Binance HTTP calls and returns synthetic flat positions, a mark price of 1, and a 0.001 step size. Dry-run quantities are illustrative only.
+- `DRY_RUN=true` makes no Binance HTTP calls and returns synthetic flat positions and symbol filters. Dry-run orders are illustrative only.
 
 ## Local setup
 
@@ -50,7 +51,8 @@ curl -i -X POST http://127.0.0.1:8000/webhook/tradingview \
     "event_id":"manual_test_001",
     "symbol":"BTCUSDT",
     "action":"open_long",
-    "notional":80,
+    "price":40000,
+    "amount":0.002,
     "source":"manual",
     "strategy":"smoke_test"
   }'
@@ -152,19 +154,23 @@ Pine message builder:
 
 ```pine
 webhook_token = "same_as_WEBHOOK_SECRET"
-notional = "80"
 
-f_server_msg(action) =>
+f_server_msg(action, order_price, order_amount) =>
     msg = '{"token":"' + webhook_token + '"'
     msg := msg + ',"event_id":"' + syminfo.ticker + '_' + action + '_' + str.tostring(time) + '_' + str.tostring(bar_index) + '"'
     msg := msg + ',"symbol":"' + syminfo.ticker + '"'
     msg := msg + ',"action":"' + action + '"'
-    msg := msg + ',"notional":' + notional
+    is_open = action == "open_long" or action == "open_short"
+    if is_open
+        msg := msg + ',"price":' + str.tostring(order_price)
+        msg := msg + ',"amount":' + str.tostring(order_amount)
     msg := msg + ',"source":"tradingview"'
     msg := msg + ',"strategy":"my_strategy"'
     msg := msg + '}'
     msg
 ```
+
+Example: `f_server_msg("open_long", close, 0.002)`. `price` and `amount` are required for `open_long` and `open_short`; close and flatten actions do not require them. Safety-driven closes remain reduce-only market orders so an unfilled limit close cannot leave an opposite position behind.
 
 Use one of: `open_long`, `open_short`, `close_long`, `close_short`, or `flatten`.
 
@@ -185,4 +191,4 @@ sqlite3 bridge.db 'select event_id,received_at,symbol,action,status,error from e
 
 If an event failed, first inspect Binance's actual position and the service logs. Resend the identical payload with `"retry": true` only when it is safe. Never change the meaning of an existing `event_id`.
 
-The primary endpoints used are `POST /fapi/v1/order`, `GET /fapi/v3/positionRisk`, `DELETE /fapi/v1/allOpenOrders`, `/fapi/v1/premiumIndex`, and `/fapi/v1/exchangeInfo`.
+The primary endpoints used are `POST /fapi/v1/order`, `GET /fapi/v3/positionRisk`, `GET /fapi/v1/positionSide/dual`, `GET /fapi/v1/openOrders`, `DELETE /fapi/v1/order`, `DELETE /fapi/v1/allOpenOrders`, and `GET /fapi/v1/exchangeInfo`.

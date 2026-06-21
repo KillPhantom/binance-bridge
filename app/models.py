@@ -3,18 +3,21 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 Action = Literal["open_long", "open_short", "close_long", "close_short", "flatten"]
 
 
 class TradingViewSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     token: str = Field(min_length=1)
     event_id: str = Field(min_length=1, max_length=200)
     symbol: str = Field(min_length=1, max_length=30)
     action: Action
-    notional: float | None = Field(default=None, gt=0)
+    price: Decimal | None = Field(default=None, gt=0)
+    amount: Decimal | None = Field(default=None, gt=0)
     source: str = "tradingview"
     strategy: str | None = None
     retry: bool = False
@@ -23,6 +26,13 @@ class TradingViewSignal(BaseModel):
     @classmethod
     def normalize_symbol(cls, value: str) -> str:
         return value.strip().upper()
+
+    @model_validator(mode="after")
+    def require_limit_order_values_for_open(self) -> "TradingViewSignal":
+        if self.action in {"open_long", "open_short"}:
+            if self.price is None or self.amount is None:
+                raise ValueError("open actions require price and amount")
+        return self
 
 
 class Position(BaseModel):

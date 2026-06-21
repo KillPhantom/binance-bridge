@@ -130,7 +130,8 @@ class BinanceClient:
     async def get_exchange_info(self) -> dict[str, Any]:
         if self.dry_run:
             return {"symbols": [{"symbol": symbol, "filters": [
-                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"}
+                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                {"filterType": "PRICE_FILTER", "tickSize": "0.01", "minPrice": "0.01"},
             ]} for symbol in self.settings.allowed_symbols]}
         if self._exchange_info is None:
             response = await self.client.get("/fapi/v1/exchangeInfo")
@@ -214,6 +215,29 @@ class BinanceClient:
             "positionSide": "BOTH",
             "type": "MARKET",
             "quantity": decimal_string(quantity),
+            "reduceOnly": reduce_only,
+            "newOrderRespType": "RESULT",
+        }
+        if self.dry_run:
+            return {"dryRun": True, **params}
+        return await self.signed_request("POST", "/fapi/v1/order", params)
+
+    async def place_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        price: Decimal,
+        reduce_only: bool = False,
+    ) -> dict[str, Any]:
+        params = {
+            "symbol": symbol,
+            "side": side,
+            "positionSide": "BOTH",
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "quantity": decimal_string(quantity),
+            "price": decimal_string(price),
             "reduceOnly": reduce_only,
             "newOrderRespType": "RESULT",
         }
