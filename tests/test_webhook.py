@@ -38,9 +38,12 @@ def payload(**changes):
         "token": "test-secret",
         "event_id": "event-1",
         "symbol": "BTCUSDT",
-        "action": "open_long",
+        "side": "buy",
+        "positionSide": "BOTH",
+        "investmentType": "notional_value",
         "price": 40000,
-        "amount": 0.002,
+        "amount": "80",
+        "reduceOnly": False,
         "source": "tradingview",
         "strategy": "test",
     }
@@ -75,14 +78,33 @@ def test_unsupported_symbol_rejected(tmp_path):
     binance.place_limit_order.assert_not_awaited()
 
 
-def test_open_action_requires_price_and_amount(tmp_path):
+def test_signal_requires_exact_simple_order_schema(tmp_path):
     app, _, binance = make_app(tmp_path)
     with TestClient(app) as http:
         response = http.post(
-            "/webhook/tradingview", json=payload(price=None, amount=None)
+            "/webhook/tradingview", json=payload(positionSide="LONG")
         )
     assert response.status_code == 400
     binance.place_limit_order.assert_not_awaited()
+
+
+def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
+    app, _, binance = make_app(tmp_path)
+    binance.get_position.side_effect = [
+        Position(symbol="BTCUSDT", amount=0.002),
+        Position(symbol="BTCUSDT", amount=0.002),
+    ]
+    binance.cancel_opening_orders.return_value = {"canceledOrderIds": []}
+    with TestClient(app) as http:
+        response = http.post(
+            "/webhook/tradingview",
+            json=payload(side="sell", reduceOnly=True),
+        )
+    assert response.status_code == 200
+    binance.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "SELL")
+    binance.place_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
+    )
 
 
 def test_binance_failure_marks_event_failed(tmp_path):

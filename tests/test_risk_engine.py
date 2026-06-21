@@ -29,10 +29,10 @@ def make_client(positions: list[Position]):
 
 
 @pytest.mark.asyncio
-async def test_open_long_from_flat_places_buy():
-    client = make_client([position(0), position(0.002)])
-    await RiskEngine(client, Settings()).open_long(
-        "BTCUSDT", Decimal("40000"), Decimal("0.002")
+async def test_buy_open_from_flat_places_limit_buy():
+    client = make_client([position(0), position(0)])
+    await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000"), False
@@ -41,78 +41,81 @@ async def test_open_long_from_flat_places_buy():
 
 
 @pytest.mark.asyncio
-async def test_open_short_from_flat_places_sell():
-    client = make_client([position(0), position(-0.002)])
-    await RiskEngine(client, Settings()).open_short(
-        "BTCUSDT", Decimal("40000"), Decimal("0.002")
+async def test_sell_open_from_flat_places_limit_sell():
+    client = make_client([position(0), position(0)])
+    await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), False
     )
-    client.place_market_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_open_long_while_short_closes_then_opens():
-    client = make_client([position(-0.004), position(0), position(0.002)])
-    await RiskEngine(client, Settings()).open_long(
-        "BTCUSDT", Decimal("40000"), Decimal("0.002")
+async def test_buy_open_while_short_market_closes_then_places_limit_buy():
+    client = make_client([position(-0.004), position(0), position(0)])
+    await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
-    assert client.place_market_order.await_args_list[0].args == (
+    client.place_market_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.004"), True
     )
-    assert client.place_limit_order.await_args_list[0].args == (
+    client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000"), False
     )
 
 
 @pytest.mark.asyncio
-async def test_open_short_while_long_closes_then_opens():
-    client = make_client([position(0.004), position(0), position(-0.002)])
-    await RiskEngine(client, Settings()).open_short(
-        "BTCUSDT", Decimal("40000"), Decimal("0.002")
+async def test_sell_open_while_long_market_closes_then_places_limit_sell():
+    client = make_client([position(0.004), position(0), position(0)])
+    await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
-    assert client.place_market_order.await_args_list[0].args == (
+    client.place_market_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.004"), True
     )
-    assert client.place_limit_order.await_args_list[0].args == (
+    client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), False
     )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("method", "opening_side"),
-    [("close_long", "BUY"), ("close_short", "SELL")],
-)
-async def test_close_when_flat_does_not_order(method: str, opening_side: str):
+@pytest.mark.parametrize("side", ["buy", "sell"])
+async def test_reduce_only_when_flat_does_not_place_order(side: str):
     client = make_client([position(0), position(0)])
-    await getattr(RiskEngine(client, Settings()), method)("BTCUSDT")
+    await RiskEngine(client, Settings()).reduce_order(
+        "BTCUSDT", side, Decimal("40000"), Decimal("80")
+    )
+    client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", side.upper())
+    client.place_limit_order.assert_not_awaited()
     client.place_market_order.assert_not_awaited()
-    client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", opening_side)
-    client.cancel_all_open_orders.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_close_short_cancels_opening_short_orders_before_position_read():
-    client = make_client([position(-0.002), position(0)])
+async def test_reduce_only_sell_cancels_short_openers_then_limits_long_close():
+    client = make_client([position(0.002), position(0.002)])
     parent = AsyncMock()
     parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
     parent.attach_mock(client.get_position, "get_position")
-    await RiskEngine(client, Settings()).close_short("BTCUSDT")
+    await RiskEngine(client, Settings()).reduce_order(
+        "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
+    )
     assert parent.mock_calls[0].args == ("BTCUSDT", "SELL")
     assert parent.mock_calls[1].args == ("BTCUSDT",)
+    client.place_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
+    )
 
 
 @pytest.mark.asyncio
-async def test_close_long_cancels_opening_long_orders_before_position_read():
-    client = make_client([position(0.002), position(0)])
-    parent = AsyncMock()
-    parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
-    parent.attach_mock(client.get_position, "get_position")
-    await RiskEngine(client, Settings()).close_long("BTCUSDT")
-    assert parent.mock_calls[0].args == ("BTCUSDT", "BUY")
-    assert parent.mock_calls[1].args == ("BTCUSDT",)
+async def test_reduce_only_buy_limits_short_close_and_caps_to_position():
+    client = make_client([position(-0.001), position(-0.001)])
+    await RiskEngine(client, Settings()).reduce_order(
+        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
+    )
+    client.place_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.001"), Decimal("40000"), True
+    )
 
 
 def test_quantity_rounding_rounds_down():
@@ -120,10 +123,10 @@ def test_quantity_rounding_rounds_down():
 
 
 @pytest.mark.asyncio
-async def test_open_order_rounds_passed_price_and_amount_down_to_filters():
+async def test_notional_amount_and_price_round_down_to_filters():
     client = make_client([position(0), position(0)])
-    await RiskEngine(client, Settings()).open_long(
-        "BTCUSDT", Decimal("40000.19"), Decimal("0.0029")
+    await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "buy", Decimal("40000.19"), Decimal("116")
     )
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10"), False

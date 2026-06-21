@@ -29,12 +29,17 @@ def test_existing_events_table_migrates_price_and_amount(tmp_path):
         token="secret",
         event_id="limit-1",
         symbol="BTCUSDT",
-        action="open_long",
+        side="buy",
+        positionSide="BOTH",
+        investmentType="notional_value",
         price="40000.10",
-        amount="0.002",
+        amount="80",
+        reduceOnly=False,
     )
     assert store.claim(signal, signal.model_dump(mode="json")) == "claimed"
 
     event = store.get("limit-1")
     assert event["price"] == 40000.10
-    assert event["amount"] == 0.002
+    assert event["amount"] == 80
+    assert event["side"] == "buy"
+    assert event["reduce_only"] == 0
