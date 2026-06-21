@@ -101,7 +101,7 @@ def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
             json=payload(side="sell", reduceOnly=True),
         )
     assert response.status_code == 200
-    binance.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "SELL")
+    binance.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "BUY")
     binance.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
     )

@@ -80,19 +80,26 @@ async def test_sell_open_while_long_market_closes_then_places_limit_sell():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("side", ["buy", "sell"])
-async def test_reduce_only_when_flat_does_not_place_order(side: str):
+@pytest.mark.parametrize(
+    ("side", "opening_side_to_cancel"),
+    [("sell", "BUY"), ("buy", "SELL")],
+)
+async def test_reduce_only_when_flat_cancels_old_opener_without_reduce_order(
+    side: str, opening_side_to_cancel: str
+):
     client = make_client([position(0), position(0)])
     await RiskEngine(client, Settings()).reduce_order(
         "BTCUSDT", side, Decimal("40000"), Decimal("80")
     )
-    client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", side.upper())
+    client.cancel_opening_orders.assert_awaited_once_with(
+        "BTCUSDT", opening_side_to_cancel
+    )
     client.place_limit_order.assert_not_awaited()
     client.place_market_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_reduce_only_sell_cancels_short_openers_then_limits_long_close():
+async def test_reduce_only_sell_cancels_long_openers_then_limits_long_close():
     client = make_client([position(0.002), position(0.002)])
     parent = AsyncMock()
     parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
@@ -100,7 +107,7 @@ async def test_reduce_only_sell_cancels_short_openers_then_limits_long_close():
     await RiskEngine(client, Settings()).reduce_order(
         "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
-    assert parent.mock_calls[0].args == ("BTCUSDT", "SELL")
+    assert parent.mock_calls[0].args == ("BTCUSDT", "BUY")
     assert parent.mock_calls[1].args == ("BTCUSDT",)
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
@@ -113,6 +120,7 @@ async def test_reduce_only_buy_limits_short_close_and_caps_to_position():
     await RiskEngine(client, Settings()).reduce_order(
         "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
+    client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "SELL")
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.001"), Decimal("40000"), True
     )

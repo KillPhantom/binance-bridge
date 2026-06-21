@@ -125,8 +125,13 @@ class RiskEngine:
         self, symbol: str, side: str, price: Decimal, amount: Decimal
     ) -> ExecutionResult:
         responses: list[dict[str, Any]] = []
-        opening_side = side.upper()
-        responses.append(await self.client.cancel_opening_orders(symbol, opening_side))
+        order_side = side.upper()
+        opening_side_to_cancel = "BUY" if order_side == "SELL" else "SELL"
+        responses.append(
+            await self.client.cancel_opening_orders(
+                symbol, opening_side_to_cancel
+            )
+        )
         before = await self.client.get_position(symbol)
         matches = (side == "sell" and before.amount > 0) or (
             side == "buy" and before.amount < 0
@@ -141,7 +146,7 @@ class RiskEngine:
             )
             responses.append(
                 await self.client.place_limit_order(
-                    symbol, opening_side, quantity, normalized_price, True
+                    symbol, order_side, quantity, normalized_price, True
                 )
             )
         after = await self.client.get_position(symbol)
