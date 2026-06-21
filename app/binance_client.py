@@ -129,6 +129,61 @@ class BinanceClient:
             return {"dryRun": True, "operation": "cancel_all", "symbol": symbol}
         return await self.signed_request("DELETE", "/fapi/v1/allOpenOrders", {"symbol": symbol})
 
+    async def get_open_orders(self, symbol: str) -> list[dict[str, Any]]:
+        if self.dry_run:
+            return []
+        return await self.signed_request("GET", "/fapi/v1/openOrders", {"symbol": symbol})
+
+    async def cancel_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        if self.dry_run:
+            return {
+                "dryRun": True,
+                "operation": "cancel_order",
+                "symbol": symbol,
+                "orderId": order_id,
+            }
+        return await self.signed_request(
+            "DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}
+        )
+
+    @staticmethod
+    def _is_true(value: Any) -> bool:
+        return value is True or (isinstance(value, str) and value.lower() == "true")
+
+    async def cancel_opening_orders(self, symbol: str, side: str) -> dict[str, Any]:
+        """Cancel non-reduce-only opening orders for one side in One-way Mode."""
+        normalized_side = side.upper()
+        if normalized_side not in {"BUY", "SELL"}:
+            raise ValueError("opening order side must be BUY or SELL")
+        if self.dry_run:
+            return {
+                "dryRun": True,
+                "operation": "cancel_opening_orders",
+                "symbol": symbol,
+                "side": normalized_side,
+                "canceledOrderIds": [],
+            }
+
+        orders = await self.get_open_orders(symbol)
+        candidates = [
+            order
+            for order in orders
+            if order.get("side", "").upper() == normalized_side
+            and order.get("positionSide", "BOTH") == "BOTH"
+            and not self._is_true(order.get("reduceOnly", False))
+            and not self._is_true(order.get("closePosition", False))
+        ]
+        canceled = [
+            await self.cancel_order(symbol, int(order["orderId"])) for order in candidates
+        ]
+        return {
+            "operation": "cancel_opening_orders",
+            "symbol": symbol,
+            "side": normalized_side,
+            "canceledOrderIds": [int(order["orderId"]) for order in candidates],
+            "responses": canceled,
+        }
+
     async def place_market_order(
         self, symbol: str, side: str, quantity: Decimal, reduce_only: bool
     ) -> dict[str, Any]:

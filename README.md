@@ -9,6 +9,7 @@ A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M F
 - SQLite event IDs prevent duplicate execution. Successful duplicates return 200; processing duplicates return 409; failed events require `"retry": true`.
 - A per-symbol lock prevents concurrent signals in one Uvicorn worker from racing on the same position. The supplied service deliberately uses one worker; scaling to multiple processes requires a cross-process lock or queue.
 - Reversals cancel open orders, close the full opposite position with `reduceOnly=true`, poll until flat, and abort on timeout rather than opening anyway.
+- `close_long` cancels pending non-reduce-only BUY opening orders before closing; `close_short` does the same for SELL opening orders. Reduce-only and close-position protection orders are preserved.
 - The webhook token is compared safely and is redacted before payload storage. API secrets are read only from the environment and are never logged.
 - `DRY_RUN=true` makes no Binance HTTP calls and returns synthetic flat positions, a mark price of 1, and a 0.001 step size. Dry-run quantities are illustrative only.
 

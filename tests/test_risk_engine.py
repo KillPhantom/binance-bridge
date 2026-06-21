@@ -22,6 +22,7 @@ def make_client(positions: list[Position]):
         "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"}
     }
     client.cancel_all_open_orders.return_value = {"code": 200}
+    client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 1}
     return client
 
@@ -69,12 +70,38 @@ async def test_open_short_while_long_closes_then_opens():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["close_long", "close_short"])
-async def test_close_when_flat_does_not_order(method: str):
+@pytest.mark.parametrize(
+    ("method", "opening_side"),
+    [("close_long", "BUY"), ("close_short", "SELL")],
+)
+async def test_close_when_flat_does_not_order(method: str, opening_side: str):
     client = make_client([position(0), position(0)])
     await getattr(RiskEngine(client, Settings()), method)("BTCUSDT")
     client.place_market_order.assert_not_awaited()
-    client.cancel_all_open_orders.assert_awaited_once_with("BTCUSDT")
+    client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", opening_side)
+    client.cancel_all_open_orders.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_close_short_cancels_opening_short_orders_before_position_read():
+    client = make_client([position(-0.002), position(0)])
+    parent = AsyncMock()
+    parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
+    parent.attach_mock(client.get_position, "get_position")
+    await RiskEngine(client, Settings()).close_short("BTCUSDT")
+    assert parent.mock_calls[0].args == ("BTCUSDT", "SELL")
+    assert parent.mock_calls[1].args == ("BTCUSDT",)
+
+
+@pytest.mark.asyncio
+async def test_close_long_cancels_opening_long_orders_before_position_read():
+    client = make_client([position(0.002), position(0)])
+    parent = AsyncMock()
+    parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
+    parent.attach_mock(client.get_position, "get_position")
+    await RiskEngine(client, Settings()).close_long("BTCUSDT")
+    assert parent.mock_calls[0].args == ("BTCUSDT", "BUY")
+    assert parent.mock_calls[1].args == ("BTCUSDT",)
 
 
 def test_quantity_rounding_rounds_down():

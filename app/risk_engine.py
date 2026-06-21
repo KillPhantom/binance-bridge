@@ -108,6 +108,8 @@ class RiskEngine:
 
     async def _close(self, symbol: str, target: str) -> ExecutionResult:
         responses: list[dict[str, Any]] = []
+        opening_side = "BUY" if target == "long" else "SELL"
+        responses.append(await self.client.cancel_opening_orders(symbol, opening_side))
         before = await self.client.get_position(symbol)
         matches = (target == "long" and before.amount > 0) or (target == "short" and before.amount < 0)
         if matches:
@@ -115,7 +117,6 @@ class RiskEngine:
             responses.append(await self.client.place_market_order(
                 symbol, side, abs(before.amount), True
             ))
-        responses.append(await self.client.cancel_all_open_orders(symbol))
         after = await self.client.get_position(symbol)
         action = "close submitted" if matches else "already flat or opposite; no close order placed"
         return ExecutionResult(
