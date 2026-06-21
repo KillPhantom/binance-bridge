@@ -27,6 +27,7 @@ def make_app(tmp_path, client=None):
         "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
     }
     client.cancel_all_open_orders.return_value = {"code": 200}
+    client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 42}
     client.place_limit_order.return_value = {"orderId": 43}
     store = EventStore(settings.sqlite_path)
@@ -85,6 +86,38 @@ def test_signal_requires_exact_simple_order_schema(tmp_path):
             "/webhook/tradingview", json=payload(positionSide="LONG")
         )
     assert response.status_code == 400
+    binance.place_limit_order.assert_not_awaited()
+
+
+def test_accepts_tradingview_compatibility_fields(tmp_path):
+    app, _, _ = make_app(tmp_path)
+    with TestClient(app) as http:
+        response = http.post(
+            "/webhook/tradingview",
+            json=payload(
+                event_id="tv-compatible-1",
+                side="sell",
+                reduceOnly=True,
+                positionMode="one_way_mode",
+                action="sell",
+                notional=80,
+            ),
+        )
+    assert response.status_code == 200
+
+
+def test_rejects_conflicting_compatibility_fields(tmp_path):
+    app, _, binance = make_app(tmp_path)
+    with TestClient(app) as http:
+        action_response = http.post(
+            "/webhook/tradingview", json=payload(action="sell")
+        )
+        notional_response = http.post(
+            "/webhook/tradingview",
+            json=payload(event_id="event-2", notional=81),
+        )
+    assert action_response.status_code == 400
+    assert notional_response.status_code == 400
     binance.place_limit_order.assert_not_awaited()
 
 
