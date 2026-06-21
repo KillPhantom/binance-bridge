@@ -101,6 +101,8 @@ chmod +x scripts/*.sh
 ./scripts/install_server.sh
 ```
 
+The installer detects the project directory from its own location. If you pass a directory explicitly, use an absolute path such as `./scripts/install_server.sh /root/tv-binance-bridge/binance-bridge`; do not use `/~/...`.
+
 Create `/home/ubuntu/tv-binance-bridge/.env` manually—deployment intentionally never copies or overwrites it:
 
 ```bash

@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${1:-/home/ubuntu/tv-binance-bridge}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${1:-$(cd -- "$SCRIPT_DIR/.." && pwd)}"
+
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  echo "Project directory does not exist: $PROJECT_DIR" >&2
+  echo "Use an absolute path; do not use /~/..." >&2
+  exit 1
+fi
 
 sudo apt-get update
 sudo apt-get install -y python3 python3-venv python3-pip nginx ufw sqlite3
 
-cd "$PROJECT_DIR"
+cd -- "$PROJECT_DIR"
 if [[ ! -d venv ]]; then
   python3 -m venv venv
 fi
