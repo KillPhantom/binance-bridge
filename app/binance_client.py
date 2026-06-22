@@ -168,6 +168,66 @@ class BinanceClient:
             "DELETE", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}
         )
 
+    async def query_order(self, symbol: str, order_id: int) -> dict[str, Any]:
+        if self.dry_run:
+            return {
+                "dryRun": True,
+                "symbol": symbol,
+                "orderId": order_id,
+                "status": "FILLED",
+                "executedQty": "0",
+            }
+        return await self.signed_request(
+            "GET", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}
+        )
+
+    async def cancel_all_algo_open_orders(self, symbol: str) -> dict[str, Any]:
+        if self.dry_run:
+            return {"dryRun": True, "operation": "cancel_all_algo", "symbol": symbol}
+        return await self.signed_request(
+            "DELETE", "/fapi/v1/algoOpenOrders", {"symbol": symbol}
+        )
+
+    async def cancel_algo_order(self, algo_id: int) -> dict[str, Any]:
+        if self.dry_run:
+            return {"dryRun": True, "operation": "cancel_algo", "algoId": algo_id}
+        return await self.signed_request(
+            "DELETE", "/fapi/v1/algoOrder", {"algoId": algo_id}
+        )
+
+    async def place_close_position_algo_order(
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        trigger_price: Decimal,
+        client_algo_id: str,
+    ) -> dict[str, Any]:
+        if order_type not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}:
+            raise ValueError("unsupported close-position algo order type")
+        params = {
+            "algoType": "CONDITIONAL",
+            "symbol": symbol,
+            "side": side,
+            "type": order_type,
+            "positionSide": "BOTH",
+            "triggerPrice": decimal_string(trigger_price),
+            "workingType": self.settings.algo_working_type,
+            "closePosition": True,
+            "priceProtect": self.settings.algo_price_protect,
+            "clientAlgoId": client_algo_id,
+            "newOrderRespType": "RESULT",
+        }
+        if self.dry_run:
+            return {"dryRun": True, "algoId": 1, **params}
+        response = await self.signed_request("POST", "/fapi/v1/algoOrder", params)
+        if not isinstance(response, dict) or response.get("algoId") is None:
+            raise BinanceAPIError(200, "Binance did not return algoId")
+        if not self._is_true(response.get("closePosition")):
+            await self.cancel_algo_order(int(response["algoId"]))
+            raise BinanceAPIError(200, "Binance did not confirm closePosition")
+        return response
+
     @staticmethod
     def _is_true(value: Any) -> bool:
         return value is True or (isinstance(value, str) and value.lower() == "true")

@@ -22,6 +22,7 @@ def make_client(positions: list[Position]):
         "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
     }
     client.cancel_all_open_orders.return_value = {"code": 200}
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 1}
     client.place_limit_order.return_value = {"orderId": 2}
@@ -141,3 +142,18 @@ async def test_notional_amount_and_price_round_down_to_filters():
     client.place_limit_order.assert_awaited_once_with(
         "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10")
     )
+
+
+@pytest.mark.asyncio
+async def test_allow_add_false_preserves_existing_position_protection():
+    client = make_client([position(0.002), position(0.002)])
+    engine = RiskEngine(client, Settings(allow_add=False))
+
+    result = await engine.open_order(
+        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
+    )
+
+    assert "existing protection preserved" in result.summary
+    client.cancel_all_algo_open_orders.assert_not_awaited()
+    client.cancel_all_open_orders.assert_not_awaited()
+    client.place_limit_order.assert_not_awaited()

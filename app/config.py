@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
@@ -35,6 +36,9 @@ class Settings(BaseModel):
     recv_window: int = Field(default=5000, ge=1, le=60000)
     position_poll_seconds: float = Field(default=5, gt=0)
     position_poll_interval: float = Field(default=0.5, gt=0)
+    bracket_poll_interval: float = Field(default=1.0, gt=0)
+    algo_working_type: Literal["MARK_PRICE", "CONTRACT_PRICE"] = "MARK_PRICE"
+    algo_price_protect: bool = False
     sqlite_path: Path = Path("./bridge.db")
 
     @field_validator("allowed_symbols", mode="before")
@@ -59,6 +63,9 @@ class Settings(BaseModel):
             recv_window=os.getenv("RECV_WINDOW", "5000"),
             position_poll_seconds=os.getenv("POSITION_POLL_SECONDS", "5"),
             position_poll_interval=os.getenv("POSITION_POLL_INTERVAL", "0.5"),
+            bracket_poll_interval=os.getenv("BRACKET_POLL_INTERVAL", "1"),
+            algo_working_type=os.getenv("ALGO_WORKING_TYPE", "MARK_PRICE"),
+            algo_price_protect=_env_bool("ALGO_PRICE_PROTECT", False),
             sqlite_path=Path(os.getenv("SQLITE_PATH", "./bridge.db")),
         )
 

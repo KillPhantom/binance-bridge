@@ -35,6 +35,8 @@ def test_existing_events_table_migrates_price_and_amount(tmp_path):
         price="40000.10",
         amount="80",
         reduceOnly=False,
+        stopLossPrice="39000",
+        takeProfitPrice="41000",
     )
     assert store.claim(signal, signal.model_dump(mode="json")) == "claimed"
 

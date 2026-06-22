@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import ValidationError
 
 from .binance_client import BinanceClient
+from .bracket_worker import BracketWorker
 from .config import Settings, get_settings
 from .db import EventStore
 from .logger import configure_logging
@@ -34,17 +36,24 @@ def create_app(
     store = store or EventStore(settings.sqlite_path)
     client = client or BinanceClient(settings)
     engine = RiskEngine(client, settings)
+    bracket_worker = BracketWorker(client, store, settings, engine.lock_for)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        yield
-        await client.close()
+        worker_task = asyncio.create_task(bracket_worker.run())
+        try:
+            yield
+        finally:
+            bracket_worker.stop()
+            await worker_task
+            await client.close()
 
     app = FastAPI(title="TradingView Binance Bridge", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.store = store
     app.state.binance = client
     app.state.risk_engine = engine
+    app.state.bracket_worker = bracket_worker
 
     @app.get("/health")
     async def health() -> dict[str, bool]:
@@ -82,7 +91,29 @@ def create_app(
             raise HTTPException(status_code=409, detail="failed event requires retry=true")
 
         try:
-            result = await engine.handle_signal(signal)
+            def finalize_execution(result):
+                if settings.dry_run:
+                    return
+                if signal.reduce_only:
+                    store.deactivate_active_brackets(signal.symbol, "manual_reduce")
+                    return
+                order_response = (
+                    result.binance_responses[-1] if result.binance_responses else None
+                )
+                if order_response is not None:
+                    order_id = order_response.get("orderId")
+                    if order_id is None:
+                        raise RuntimeError("Binance opening order response has no orderId")
+                    store.create_bracket(
+                        signal.event_id,
+                        signal.symbol,
+                        int(order_id),
+                        signal.side.upper(),
+                        str(signal.stop_loss_price),
+                        str(signal.take_profit_price),
+                    )
+
+            result = await engine.handle_signal(signal, finalize_execution)
             store.mark_success(
                 signal.event_id,
                 result.position_before,

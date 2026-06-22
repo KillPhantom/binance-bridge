@@ -172,3 +172,31 @@ async def test_reduce_limit_cancels_if_binance_does_not_confirm_reduce_only():
 
     client.cancel_order.assert_awaited_once_with("BTCUSDT", 11)
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_close_position_algo_uses_current_futures_algo_endpoint():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        return_value={"algoId": 301, "closePosition": True}
+    )
+
+    await client.place_close_position_algo_order(
+        "BTCUSDT",
+        "SELL",
+        "STOP_MARKET",
+        Decimal("39000"),
+        "tvb1sl",
+    )
+
+    method, path, params = client.signed_request.await_args.args
+    assert (method, path) == ("POST", "/fapi/v1/algoOrder")
+    assert params["algoType"] == "CONDITIONAL"
+    assert params["positionSide"] == "BOTH"
+    assert params["closePosition"] is True
+    assert "quantity" not in params
+    assert "reduceOnly" not in params
+    await client.close()

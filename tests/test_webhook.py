@@ -27,6 +27,7 @@ def make_app(tmp_path, client=None):
         "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
     }
     client.cancel_all_open_orders.return_value = {"code": 200}
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 42}
     client.place_limit_order.return_value = {"orderId": 43}
@@ -49,6 +50,8 @@ def payload(**changes):
         "price": 40000,
         "amount": "80",
         "reduceOnly": False,
+        "stopLossPrice": "39000",
+        "takeProfitPrice": "41000",
         "source": "tradingview",
         "strategy": "test",
     }
@@ -90,6 +93,26 @@ def test_signal_requires_exact_simple_order_schema(tmp_path):
             "/webhook/tradingview", json=payload(positionSide="LONG")
         )
     assert response.status_code == 400
+    binance.place_limit_order.assert_not_awaited()
+
+
+def test_open_signal_requires_valid_stop_loss_and_take_profit(tmp_path):
+    app, _, binance = make_app(tmp_path)
+    with TestClient(app) as http:
+        missing = http.post(
+            "/webhook/tradingview",
+            json=payload(stopLossPrice=None, takeProfitPrice=None),
+        )
+        inverted = http.post(
+            "/webhook/tradingview",
+            json=payload(
+                event_id="event-2",
+                stopLossPrice="41000",
+                takeProfitPrice="39000",
+            ),
+        )
+    assert missing.status_code == 400
+    assert inverted.status_code == 400
     binance.place_limit_order.assert_not_awaited()
 
 
@@ -174,3 +197,41 @@ def test_failed_event_requires_explicit_retry(tmp_path):
     with TestClient(app, raise_server_exceptions=False) as http:
         assert http.post("/webhook/tradingview", json=payload()).status_code == 500
         assert http.post("/webhook/tradingview", json=payload()).status_code == 409
+
+
+def test_live_opening_persists_bracket_before_webhook_success(tmp_path):
+    settings = Settings(
+        webhook_secret="test-secret",
+        binance_api_key="key",
+        binance_api_secret="secret",
+        allowed_symbols=frozenset({"BTCUSDT"}),
+        sqlite_path=tmp_path / "events.db",
+        dry_run=False,
+        bracket_poll_interval=60,
+    )
+    store = EventStore(settings.sqlite_path)
+    binance = AsyncMock()
+    binance.dry_run = False
+    binance.close.return_value = None
+    binance.cancel_all_algo_open_orders.return_value = {"code": 200}
+    binance.cancel_all_open_orders.return_value = {"code": 200}
+    binance.get_position.side_effect = [
+        Position(symbol="BTCUSDT", amount=0),
+        Position(symbol="BTCUSDT", amount=0),
+    ]
+    binance.get_symbol_filters.return_value = {
+        "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"},
+        "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
+    }
+    binance.place_limit_order.return_value = {"orderId": 501}
+    app = create_app(settings, store, binance)
+
+    with TestClient(app) as http:
+        response = http.post("/webhook/tradingview", json=payload())
+        brackets = store.list_active_brackets()
+
+    assert response.status_code == 200
+    assert len(brackets) == 1
+    assert brackets[0]["entry_order_id"] == 501
+    assert brackets[0]["stop_loss_price"] == "39000"
+    assert brackets[0]["take_profit_price"] == "41000"

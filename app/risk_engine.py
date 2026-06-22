@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 
 from .binance_client import BinanceClient
 from .config import Settings
@@ -21,15 +21,26 @@ class RiskEngine:
         self.settings = settings
         self._symbol_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
-    async def handle_signal(self, signal: TradingViewSignal) -> ExecutionResult:
-        async with self._symbol_locks[signal.symbol]:
+    def lock_for(self, symbol: str) -> asyncio.Lock:
+        return self._symbol_locks[symbol]
+
+    async def handle_signal(
+        self,
+        signal: TradingViewSignal,
+        finalize: Callable[[ExecutionResult], None] | None = None,
+    ) -> ExecutionResult:
+        async with self.lock_for(signal.symbol):
             if signal.reduce_only:
-                return await self.reduce_order(
+                result = await self.reduce_order(
                     signal.symbol, signal.side, signal.price
                 )
-            return await self.open_order(
-                signal.symbol, signal.side, signal.price, signal.amount
-            )
+            else:
+                result = await self.open_order(
+                    signal.symbol, signal.side, signal.price, signal.amount
+                )
+            if finalize is not None:
+                finalize(result)
+            return result
 
     @staticmethod
     def _position_dict(position: Position) -> dict[str, Any]:
@@ -95,8 +106,17 @@ class RiskEngine:
     ) -> ExecutionResult:
         target = "long" if side == "buy" else "short"
         responses: list[dict[str, Any]] = []
-        responses.append(await self.client.cancel_all_open_orders(symbol))
         before = await self.client.get_position(symbol)
+        if before.side == target and not self.settings.allow_add:
+            after = await self.client.get_position(symbol)
+            return ExecutionResult(
+                summary=f"already {target}; ALLOW_ADD=false, existing protection preserved",
+                position_before=self._position_dict(before),
+                position_after=self._position_dict(after),
+                binance_responses=responses,
+            )
+        responses.append(await self.client.cancel_all_algo_open_orders(symbol))
+        responses.append(await self.client.cancel_all_open_orders(symbol))
         position = before
         opposite = (target == "long" and position.amount < 0) or (target == "short" and position.amount > 0)
         if opposite:
@@ -105,14 +125,6 @@ class RiskEngine:
                 symbol, close_side, abs(position.amount), True
             ))
             position = await self._wait_flat(symbol)
-        elif position.side == target and not self.settings.allow_add:
-            after = await self.client.get_position(symbol)
-            return ExecutionResult(
-                summary=f"already {target}; ALLOW_ADD=false, no opening order placed",
-                position_before=self._position_dict(before),
-                position_after=self._position_dict(after),
-                binance_responses=responses,
-            )
         normalized_price, quantity = await self._normalize_limit_order(symbol, price, amount)
         binance_side = side.upper()
         responses.append(
@@ -137,6 +149,7 @@ class RiskEngine:
         responses: list[dict[str, Any]] = []
         order_side = side.upper()
         opening_side_to_cancel = "BUY" if order_side == "SELL" else "SELL"
+        responses.append(await self.client.cancel_all_algo_open_orders(symbol))
         responses.append(
             await self.client.cancel_opening_orders(
                 symbol, opening_side_to_cancel
