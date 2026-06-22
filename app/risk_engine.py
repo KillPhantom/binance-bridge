@@ -25,7 +25,7 @@ class RiskEngine:
         async with self._symbol_locks[signal.symbol]:
             if signal.reduce_only:
                 return await self.reduce_order(
-                    signal.symbol, signal.side, signal.price, signal.amount
+                    signal.symbol, signal.side, signal.price
                 )
             return await self.open_order(
                 signal.symbol, signal.side, signal.price, signal.amount
@@ -53,8 +53,6 @@ class RiskEngine:
         symbol: str,
         price: Decimal,
         notional_amount: Decimal,
-        maximum_quantity: Decimal | None = None,
-        validate_minimum_notional: bool = True,
     ) -> tuple[Decimal, Decimal]:
         filters = await self.client.get_symbol_filters(symbol)
         lot = filters.get("LOT_SIZE") or filters.get("MARKET_LOT_SIZE")
@@ -66,18 +64,30 @@ class RiskEngine:
         quantity = round_step_size(
             notional_amount / price, Decimal(lot["stepSize"])
         )
-        if maximum_quantity is not None:
-            quantity = min(quantity, maximum_quantity)
-            quantity = round_step_size(quantity, Decimal(lot["stepSize"]))
         normalized_price = round_step_size(price, Decimal(price_filter["tickSize"]))
         minimum = Decimal(lot["minQty"])
         if quantity < minimum:
             raise ValueError(f"order amount {quantity} is below minimum {minimum}")
         notional_filter = filters.get("MIN_NOTIONAL") or filters.get("NOTIONAL")
-        if notional_filter and validate_minimum_notional:
+        if notional_filter:
             minimum_notional = Decimal(str(notional_filter.get("notional") or notional_filter.get("minNotional") or "0"))
             if quantity * normalized_price < minimum_notional:
                 raise ValueError("limit order is below Binance minimum notional")
+        return normalized_price, quantity
+
+    async def _normalize_full_position_limit_order(
+        self, symbol: str, price: Decimal, position_quantity: Decimal
+    ) -> tuple[Decimal, Decimal]:
+        """Normalize price and the complete live Binance position quantity."""
+        filters = await self.client.get_symbol_filters(symbol)
+        lot = filters.get("LOT_SIZE") or filters.get("MARKET_LOT_SIZE")
+        if not lot:
+            raise ValueError(f"LOT_SIZE filter unavailable for {symbol}")
+        price_filter = filters.get("PRICE_FILTER")
+        if not price_filter:
+            raise ValueError(f"PRICE_FILTER unavailable for {symbol}")
+        quantity = round_step_size(position_quantity, Decimal(lot["stepSize"]))
+        normalized_price = round_step_size(price, Decimal(price_filter["tickSize"]))
         return normalized_price, quantity
 
     async def open_order(
@@ -122,7 +132,7 @@ class RiskEngine:
         )
 
     async def reduce_order(
-        self, symbol: str, side: str, price: Decimal, amount: Decimal
+        self, symbol: str, side: str, price: Decimal
     ) -> ExecutionResult:
         responses: list[dict[str, Any]] = []
         order_side = side.upper()
@@ -137,12 +147,8 @@ class RiskEngine:
             side == "buy" and before.amount < 0
         )
         if matches:
-            normalized_price, quantity = await self._normalize_limit_order(
-                symbol,
-                price,
-                amount,
-                maximum_quantity=abs(before.amount),
-                validate_minimum_notional=False,
+            normalized_price, quantity = await self._normalize_full_position_limit_order(
+                symbol, price, abs(before.amount)
             )
             responses.append(
                 await self.client.place_reduce_only_limit_order(
@@ -151,7 +157,7 @@ class RiskEngine:
             )
         after = await self.client.get_position(symbol)
         action = (
-            "reduce-only LIMIT GTC order submitted"
+            "full-position reduce-only LIMIT GTC order submitted"
             if matches
             else "no matching position; no reduce-only order placed"
         )

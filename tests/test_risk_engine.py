@@ -90,7 +90,7 @@ async def test_reduce_only_when_flat_cancels_old_opener_without_reduce_order(
 ):
     client = make_client([position(0), position(0)])
     await RiskEngine(client, Settings()).reduce_order(
-        "BTCUSDT", side, Decimal("40000"), Decimal("80")
+        "BTCUSDT", side, Decimal("40000")
     )
     client.cancel_opening_orders.assert_awaited_once_with(
         "BTCUSDT", opening_side_to_cancel
@@ -102,29 +102,29 @@ async def test_reduce_only_when_flat_cancels_old_opener_without_reduce_order(
 
 @pytest.mark.asyncio
 async def test_reduce_only_sell_cancels_long_openers_then_limits_long_close():
-    client = make_client([position(0.002), position(0.002)])
+    client = make_client([position(0.005), position(0.005)])
     parent = AsyncMock()
     parent.attach_mock(client.cancel_opening_orders, "cancel_opening_orders")
     parent.attach_mock(client.get_position, "get_position")
     await RiskEngine(client, Settings()).reduce_order(
-        "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
+        "BTCUSDT", "sell", Decimal("40000")
     )
     assert parent.mock_calls[0].args == ("BTCUSDT", "BUY")
     assert parent.mock_calls[1].args == ("BTCUSDT",)
     client.place_reduce_only_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
+        "BTCUSDT", "SELL", Decimal("0.005"), Decimal("40000")
     )
 
 
 @pytest.mark.asyncio
-async def test_reduce_only_buy_limits_short_close_and_caps_to_position():
-    client = make_client([position(-0.001), position(-0.001)])
+async def test_reduce_only_buy_uses_entire_live_short_position():
+    client = make_client([position(-0.003), position(-0.003)])
     await RiskEngine(client, Settings()).reduce_order(
-        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
+        "BTCUSDT", "buy", Decimal("40000")
     )
     client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "SELL")
     client.place_reduce_only_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.001"), Decimal("40000")
+        "BTCUSDT", "BUY", Decimal("0.003"), Decimal("40000")
     )
 
 

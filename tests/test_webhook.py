@@ -134,8 +134,8 @@ def test_ignores_extra_legacy_fields_even_when_they_conflict(tmp_path):
 def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
     app, _, binance = make_app(tmp_path)
     binance.get_position.side_effect = [
-        Position(symbol="BTCUSDT", amount=0.002),
-        Position(symbol="BTCUSDT", amount=0.002),
+        Position(symbol="BTCUSDT", amount=0.005),
+        Position(symbol="BTCUSDT", amount=0.005),
     ]
     binance.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     with TestClient(app) as http:
@@ -146,7 +146,7 @@ def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
     assert response.status_code == 200
     binance.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "BUY")
     binance.place_reduce_only_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
+        "BTCUSDT", "SELL", Decimal("0.005"), Decimal("40000")
     )
 
 

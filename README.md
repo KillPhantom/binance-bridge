@@ -1,6 +1,6 @@
 # TradingView → Binance USDⓈ-M Futures bridge
 
-A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M Futures in **One-way Mode** (`positionSide=BOTH`). Signals use Binance-style `side: buy|sell` and `reduceOnly: true|false`. Orders are submitted as `LIMIT GTC` using the webhook's `price`; with `investmentType: notional_value`, `amount` is the quote notional value and base quantity is calculated as `amount / price`.
+A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M Futures in **One-way Mode** (`positionSide=BOTH`). Signals use Binance-style `side: buy|sell` and `reduceOnly: true|false`. Orders are submitted as `LIMIT GTC` using the webhook's `price`; for opening orders with `investmentType: notional_value`, `amount` is the quote notional value and base quantity is calculated as `amount / price`.
 
 > Start with `DRY_RUN=true`. This software can place real limit and market orders when dry-run is disabled. Review it, use Binance's testnet first, restrict the API key to futures trading (never withdrawals), and add an IP restriction where possible.
 
@@ -185,7 +185,7 @@ Signal mapping:
 - `sell + reduceOnly=true`: reduce long
 - `buy + reduceOnly=true`: reduce short
 
-All webhook orders are LIMIT GTC. A reduce-only order may remain pending until its price is reached. The bridge caps its calculated quantity to the matching live position, so it cannot reverse the position.
+All webhook orders are LIMIT GTC. A reduce-only order may remain pending until its price is reached. For `reduceOnly=true`, webhook `amount` and legacy `notional` are ignored for execution quantity: the bridge reads Binance's live `positionAmt` and submits the entire matching position quantity, so TradingView sizing drift cannot leave a partial position.
 
 Only the required execution fields are modeled. Extra TradingView or legacy fields such as `positionMode`, `action`, `notional`, and any unknown metadata are accepted and ignored; they never override `side`, `amount`, `price`, or `reduceOnly`.
 
