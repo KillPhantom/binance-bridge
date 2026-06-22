@@ -187,7 +187,7 @@ Signal mapping:
 
 All webhook orders are LIMIT GTC. A reduce-only order may remain pending until its price is reached. The bridge caps its calculated quantity to the matching live position, so it cannot reverse the position.
 
-TradingView compatibility fields `positionMode: "one_way_mode"`, `action`, and `notional` are accepted. When present, `action` must equal `side`, and `notional` must equal `amount`; conflicting values are rejected rather than silently ignored.
+Only the required execution fields are modeled. Extra TradingView or legacy fields such as `positionMode`, `action`, `notional`, and any unknown metadata are accepted and ignored; they never override `side`, `amount`, `price`, or `reduceOnly`.
 
 In the TradingView alert dialog:
 

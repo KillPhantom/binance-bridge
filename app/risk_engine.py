@@ -107,7 +107,7 @@ class RiskEngine:
         binance_side = side.upper()
         responses.append(
             await self.client.place_limit_order(
-                symbol, binance_side, quantity, normalized_price, False
+                symbol, binance_side, quantity, normalized_price
             )
         )
         after = await self.client.get_position(symbol)
@@ -145,8 +145,8 @@ class RiskEngine:
                 validate_minimum_notional=False,
             )
             responses.append(
-                await self.client.place_limit_order(
-                    symbol, order_side, quantity, normalized_price, True
+                await self.client.place_reduce_only_limit_order(
+                    symbol, order_side, quantity, normalized_price
                 )
             )
         after = await self.client.get_position(symbol)

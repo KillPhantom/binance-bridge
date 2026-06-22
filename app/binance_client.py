@@ -228,7 +228,6 @@ class BinanceClient:
         side: str,
         quantity: Decimal,
         price: Decimal,
-        reduce_only: bool = False,
     ) -> dict[str, Any]:
         params = {
             "symbol": symbol,
@@ -238,9 +237,39 @@ class BinanceClient:
             "timeInForce": "GTC",
             "quantity": decimal_string(quantity),
             "price": decimal_string(price),
-            "reduceOnly": reduce_only,
+            "reduceOnly": False,
             "newOrderRespType": "RESULT",
         }
         if self.dry_run:
             return {"dryRun": True, **params}
         return await self.signed_request("POST", "/fapi/v1/order", params)
+
+    async def place_reduce_only_limit_order(
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        price: Decimal,
+    ) -> dict[str, Any]:
+        """Submit a limit order with reduceOnly hardcoded true."""
+        params = {
+            "symbol": symbol,
+            "side": side,
+            "positionSide": "BOTH",
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "quantity": decimal_string(quantity),
+            "price": decimal_string(price),
+            "reduceOnly": True,
+            "newOrderRespType": "RESULT",
+        }
+        if self.dry_run:
+            return {"dryRun": True, **params}
+        response = await self.signed_request("POST", "/fapi/v1/order", params)
+        returned_flag = response.get("reduceOnly") if isinstance(response, dict) else None
+        if returned_flag is not None and not self._is_true(returned_flag):
+            order_id = response.get("orderId")
+            if order_id is not None:
+                await self.cancel_order(symbol, int(order_id))
+            raise BinanceAPIError(200, "Binance did not confirm reduceOnly on reduce order")
+        return response

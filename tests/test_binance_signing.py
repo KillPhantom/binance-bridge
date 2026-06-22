@@ -131,3 +131,44 @@ async def test_limit_order_sends_passed_price_and_amount_as_gtc():
         },
     )
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reduce_limit_order_hardcodes_reduce_only_true():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        return_value={"orderId": 10, "reduceOnly": True}
+    )
+
+    await client.place_reduce_only_limit_order(
+        "BTCUSDT", "SELL", Decimal("0.001"), Decimal("64043.90")
+    )
+
+    params = client.signed_request.await_args.args[2]
+    assert params["side"] == "SELL"
+    assert params["positionSide"] == "BOTH"
+    assert params["reduceOnly"] is True
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_reduce_limit_cancels_if_binance_does_not_confirm_reduce_only():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        return_value={"orderId": 11, "reduceOnly": False}
+    )
+    client.cancel_order = AsyncMock(return_value={"status": "CANCELED"})
+
+    with pytest.raises(BinanceAPIError, match="did not confirm reduceOnly"):
+        await client.place_reduce_only_limit_order(
+            "BTCUSDT", "SELL", Decimal("0.001"), Decimal("64043.90")
+        )
+
+    client.cancel_order.assert_awaited_once_with("BTCUSDT", 11)
+    await client.close()

@@ -62,6 +62,16 @@ def create_app(
         if signal.symbol not in settings.allowed_symbols:
             raise HTTPException(status_code=400, detail="unsupported symbol")
 
+        logger.info(
+            "webhook route event_id=%s symbol=%s side=%s reduce_only=%s price=%s amount=%s",
+            signal.event_id,
+            signal.symbol,
+            signal.side,
+            signal.reduce_only,
+            signal.price,
+            signal.amount,
+        )
+
         claim = store.claim(signal, payload)
         if claim == "duplicate_success":
             return {"ok": True, "event_id": signal.event_id, "status": "success", "duplicate": True,

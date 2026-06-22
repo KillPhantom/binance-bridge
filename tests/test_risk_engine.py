@@ -25,6 +25,7 @@ def make_client(positions: list[Position]):
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 1}
     client.place_limit_order.return_value = {"orderId": 2}
+    client.place_reduce_only_limit_order.return_value = {"orderId": 3, "reduceOnly": True}
     return client
 
 
@@ -35,7 +36,7 @@ async def test_buy_open_from_flat_places_limit_buy():
         "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
     client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000"), False
+        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
     )
     client.place_market_order.assert_not_awaited()
 
@@ -47,7 +48,7 @@ async def test_sell_open_from_flat_places_limit_sell():
         "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
     client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), False
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
     )
 
 
@@ -61,7 +62,7 @@ async def test_buy_open_while_short_market_closes_then_places_limit_buy():
         "BTCUSDT", "BUY", Decimal("0.004"), True
     )
     client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000"), False
+        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
     )
 
 
@@ -75,7 +76,7 @@ async def test_sell_open_while_long_market_closes_then_places_limit_sell():
         "BTCUSDT", "SELL", Decimal("0.004"), True
     )
     client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), False
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
     )
 
 
@@ -95,6 +96,7 @@ async def test_reduce_only_when_flat_cancels_old_opener_without_reduce_order(
         "BTCUSDT", opening_side_to_cancel
     )
     client.place_limit_order.assert_not_awaited()
+    client.place_reduce_only_limit_order.assert_not_awaited()
     client.place_market_order.assert_not_awaited()
 
 
@@ -109,8 +111,8 @@ async def test_reduce_only_sell_cancels_long_openers_then_limits_long_close():
     )
     assert parent.mock_calls[0].args == ("BTCUSDT", "BUY")
     assert parent.mock_calls[1].args == ("BTCUSDT",)
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
+    client.place_reduce_only_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
     )
 
 
@@ -121,8 +123,8 @@ async def test_reduce_only_buy_limits_short_close_and_caps_to_position():
         "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
     client.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "SELL")
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.001"), Decimal("40000"), True
+    client.place_reduce_only_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.001"), Decimal("40000")
     )
 
 
@@ -137,5 +139,5 @@ async def test_notional_amount_and_price_round_down_to_filters():
         "BTCUSDT", "buy", Decimal("40000.19"), Decimal("116")
     )
     client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10"), False
+        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10")
     )

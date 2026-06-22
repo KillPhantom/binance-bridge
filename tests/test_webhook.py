@@ -30,6 +30,10 @@ def make_app(tmp_path, client=None):
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
     client.place_market_order.return_value = {"orderId": 42}
     client.place_limit_order.return_value = {"orderId": 43}
+    client.place_reduce_only_limit_order.return_value = {
+        "orderId": 44,
+        "reduceOnly": True,
+    }
     store = EventStore(settings.sqlite_path)
     return create_app(settings, store, client), store, client
 
@@ -90,35 +94,41 @@ def test_signal_requires_exact_simple_order_schema(tmp_path):
 
 
 def test_accepts_tradingview_compatibility_fields(tmp_path):
-    app, _, _ = make_app(tmp_path)
+    app, _, binance = make_app(tmp_path)
+    binance.get_position.side_effect = [
+        Position(symbol="BTCUSDT", amount=0.001),
+        Position(symbol="BTCUSDT", amount=0.001),
+    ]
     with TestClient(app) as http:
         response = http.post(
             "/webhook/tradingview",
             json=payload(
-                event_id="tv-compatible-1",
+                event_id="BTCUSDT.P_sell_1782097560000_20222",
                 side="sell",
                 reduceOnly=True,
                 positionMode="one_way_mode",
                 action="sell",
-                notional=80,
+                amount="100",
+                price="64043.91",
+                notional=100,
             ),
         )
     assert response.status_code == 200
+    binance.place_limit_order.assert_not_awaited()
+    binance.place_reduce_only_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.001"), Decimal("64043.90")
+    )
 
 
-def test_rejects_conflicting_compatibility_fields(tmp_path):
+def test_ignores_extra_legacy_fields_even_when_they_conflict(tmp_path):
     app, _, binance = make_app(tmp_path)
     with TestClient(app) as http:
-        action_response = http.post(
-            "/webhook/tradingview", json=payload(action="sell")
-        )
-        notional_response = http.post(
+        response = http.post(
             "/webhook/tradingview",
-            json=payload(event_id="event-2", notional=81),
+            json=payload(action="sell", notional=81, arbitraryLegacyField="ignored"),
         )
-    assert action_response.status_code == 400
-    assert notional_response.status_code == 400
-    binance.place_limit_order.assert_not_awaited()
+    assert response.status_code == 200
+    binance.place_limit_order.assert_awaited_once()
 
 
 def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
@@ -135,8 +145,8 @@ def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
         )
     assert response.status_code == 200
     binance.cancel_opening_orders.assert_awaited_once_with("BTCUSDT", "BUY")
-    binance.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000"), True
+    binance.place_reduce_only_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
     )
 
 
