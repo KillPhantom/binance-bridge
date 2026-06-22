@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -73,3 +74,56 @@ async def test_flat_position_cancels_remaining_sibling_algo(tmp_path):
 
     client.cancel_all_algo_open_orders.assert_awaited_once_with("BTCUSDT")
     assert store.get_bracket(bracket["id"])["status"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_unfilled_entry_is_canceled_after_timeout(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    bracket = create_bracket(store)
+    bracket["created_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=361)
+    ).isoformat()
+    client = AsyncMock()
+    client.query_order.side_effect = [
+        {"orderId": 101, "status": "NEW", "executedQty": "0"},
+        {"orderId": 101, "status": "CANCELED", "executedQty": "0"},
+    ]
+    worker = BracketWorker(
+        client, store, Settings(entry_order_timeout_seconds=360)
+    )
+
+    await worker._process(bracket)
+
+    client.cancel_order.assert_awaited_once_with("BTCUSDT", 101)
+    assert store.get_bracket(bracket["id"])["status"] == "entry_timed_out"
+
+
+@pytest.mark.asyncio
+async def test_timeout_race_fill_is_protected(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    bracket = create_bracket(store)
+    bracket["created_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=361)
+    ).isoformat()
+    client = AsyncMock()
+    client.query_order.side_effect = [
+        {"orderId": 101, "status": "NEW", "executedQty": "0"},
+        {"orderId": 101, "status": "FILLED", "executedQty": "0.002"},
+    ]
+    client.get_position.return_value = Position(symbol="BTCUSDT", amount="0.002")
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
+    client.get_symbol_filters.return_value = {
+        "PRICE_FILTER": {"tickSize": "0.10"}
+    }
+    client.place_close_position_algo_order.side_effect = [
+        {"algoId": 201},
+        {"algoId": 202},
+    ]
+    worker = BracketWorker(
+        client, store, Settings(entry_order_timeout_seconds=360)
+    )
+
+    await worker._process(bracket)
+
+    client.cancel_order.assert_awaited_once_with("BTCUSDT", 101)
+    assert store.get_bracket(bracket["id"])["status"] == "protected"

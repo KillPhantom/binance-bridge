@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from contextlib import suppress
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
@@ -88,6 +89,36 @@ class BracketWorker:
                 await self._begin_protection(bracket)
             else:
                 self.store.update_bracket(bracket["id"], status="entry_unfilled")
+        elif status == "NEW" and self._entry_timed_out(bracket):
+            await self.client.cancel_order(
+                bracket["symbol"], int(bracket["entry_order_id"])
+            )
+            # Re-read after cancellation: the order may have filled while the
+            # cancellation request was in flight.
+            final_order = await self.client.query_order(
+                bracket["symbol"], int(bracket["entry_order_id"])
+            )
+            final_status = str(final_order.get("status", "")).upper()
+            final_executed = Decimal(str(final_order.get("executedQty", "0")))
+            if final_executed > 0 or final_status == "FILLED":
+                await self._begin_protection(bracket)
+            elif final_status in {"CANCELED", "EXPIRED", "REJECTED"}:
+                self.store.update_bracket(
+                    bracket["id"], status="entry_timed_out", error=None
+                )
+                logger.info(
+                    "entry order timed out and was canceled bracket_id=%s symbol=%s order_id=%s",
+                    bracket["id"],
+                    bracket["symbol"],
+                    bracket["entry_order_id"],
+                )
+
+    def _entry_timed_out(self, bracket: dict) -> bool:
+        created_at = datetime.fromisoformat(str(bracket["created_at"]))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - created_at).total_seconds()
+        return age >= self.settings.entry_order_timeout_seconds
 
     async def _begin_protection(self, bracket: dict) -> None:
         position = await self.client.get_position(bracket["symbol"])
