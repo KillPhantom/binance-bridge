@@ -267,8 +267,8 @@ class BinanceClient:
             return {"dryRun": True, **params}
         response = await self.signed_request("POST", "/fapi/v1/order", params)
         returned_flag = response.get("reduceOnly") if isinstance(response, dict) else None
-        if returned_flag is not None and not self._is_true(returned_flag):
-            order_id = response.get("orderId")
+        if not self._is_true(returned_flag):
+            order_id = response.get("orderId") if isinstance(response, dict) else None
             if order_id is not None:
                 await self.cancel_order(symbol, int(order_id))
             raise BinanceAPIError(200, "Binance did not confirm reduceOnly on reduce order")
