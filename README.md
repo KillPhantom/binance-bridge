@@ -165,7 +165,7 @@ webhook_token = "same_as_WEBHOOK_SECRET"
 
 // side: "buy" / "sell"
 // reduceOnly: true = reduce/close, false = open/add
-f_msg(side, reduceOnly, stop_loss_price, take_profit_price) =>
+f_msg(side, reduceOnly, open_price, stop_loss_price, take_profit_price) =>
     reduce_str = reduceOnly ? "true" : "false"
     msg = '{"token":"' + webhook_token + '"'
     msg := msg + ',"event_id":"' + syminfo.ticker + '_' + side + '_' + str.tostring(time) + '_' + str.tostring(bar_index) + '"'
@@ -174,7 +174,7 @@ f_msg(side, reduceOnly, stop_loss_price, take_profit_price) =>
     msg := msg + ',"positionSide":"BOTH"'
     msg := msg + ',"investmentType":"notional_value"'
     msg := msg + ',"amount":"' + binance_amount + '"'
-    msg := msg + ',"price":"' + str.tostring(close) + '"'
+    msg := msg + ',"price":"' + str.tostring(open_price) + '"'
     msg := msg + ',"reduceOnly":' + reduce_str
     if not reduceOnly
         msg := msg + ',"stopLossPrice":"' + str.tostring(stop_loss_price) + '"'
@@ -189,19 +189,21 @@ Use it in the strategy like this:
 
 ```pine
 strategy.entry("初始空单", strategy.short, stop=short_open_price,
-     alert_message=f_msg("sell", false, short_stop_price, short_profit_price))
+     alert_message=f_msg("sell", false, short_open_price,
+                         short_stop_price, short_profit_price))
 
 strategy.entry("初始多单", strategy.long, stop=long_open_price,
-     alert_message=f_msg("buy", false, long_stop_price, long_profit_price))
+     alert_message=f_msg("buy", false, long_open_price,
+                         long_stop_price, long_profit_price))
 
 strategy.exit("多单平仓", "初始多单", stop=long_stop_price,
-     limit=long_profit_price, alert_message=f_msg("sell", true, 0.0, 0.0))
+     limit=long_profit_price, alert_message=f_msg("sell", true, close, 0.0, 0.0))
 
 strategy.exit("空单平仓", "初始空单", stop=short_stop_price,
-     limit=short_profit_price, alert_message=f_msg("buy", true, 0.0, 0.0))
+     limit=short_profit_price, alert_message=f_msg("buy", true, close, 0.0, 0.0))
 ```
 
-For a long entry, the bridge requires `stopLossPrice < price < takeProfitPrice`. For a short entry, it requires `takeProfitPrice < price < stopLossPrice`. Reduce-only alerts do not need protection fields; the `0.0` arguments above are not serialized.
+The webhook `price` now comes from the explicit `open_price` argument, not `close`. For a long entry, the bridge requires `stopLossPrice < open_price < takeProfitPrice`. For a short entry, it requires `takeProfitPrice < open_price < stopLossPrice`. Reduce-only alerts still need an execution price, so the fallback exit examples pass `close`; they do not need protection fields, and the `0.0` protection arguments are not serialized.
 
 Signal mapping:
 
