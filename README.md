@@ -11,7 +11,7 @@ A small FastAPI execution bridge for TradingView webhooks and Binance USDⓈ-M F
 - Reversals cancel open orders, close the full opposite position with `reduceOnly=true`, poll until flat, and abort on timeout rather than opening anyway.
 - Limit price and calculated base quantity are rounded down to Binance `PRICE_FILTER.tickSize` and `LOT_SIZE.stepSize`, then checked against applicable filters.
 - Opening orders require absolute `stopLossPrice` and `takeProfitPrice`. After the first fill, the worker cancels any unfilled entry remainder, reads the live position, and installs exchange-side `STOP_MARKET` and `TAKE_PROFIT_MARKET` Algo orders with `closePosition=true`.
-- An opening LIMIT order that remains completely unfilled for `ENTRY_ORDER_TIMEOUT_SECONDS` (360 seconds by default) is canceled. If it fills while cancellation is in flight, the resulting position is detected and protected instead of being abandoned.
+- An opening LIMIT order that remains completely unfilled for `ENTRY_ORDER_TIMEOUT_SECONDS` (1800 seconds / 30 minutes by default) is canceled. If it fills while cancellation is in flight, the resulting position is detected and protected instead of being abandoned.
 - A reduce-only SELL cancels pending non-reduce-only BUY long-opening orders before reducing a long; a reduce-only BUY cancels pending non-reduce-only SELL short-opening orders before reducing a short. Manual reduce and replacement-entry signals remove older Algo protection first.
 - Bracket state is persisted in SQLite and reconciled after process restarts. Once the position is flat, the worker cancels the remaining sibling Algo order so it cannot affect a future position.
 - If a non-reduce-only signal arrives while Binance still holds the opposite position, the bridge cancels open orders, closes that old position with a reduce-only MARKET order, confirms flat, then submits the new LIMIT order.
@@ -215,7 +215,7 @@ Signal mapping:
 
 All webhook orders are LIMIT GTC. A reduce-only order may remain pending until its price is reached. For `reduceOnly=true`, webhook `amount` and legacy `notional` are ignored for execution quantity: the bridge reads Binance's live `positionAmt` and submits the entire matching position quantity, so TradingView sizing drift cannot leave a partial position.
 
-The entry LIMIT order is monitored by the server; TradingView does not need to send a later exit signal for protection. On first partial fill, the worker cancels the unfilled remainder and protects the resulting fixed position. If no fill occurs within `ENTRY_ORDER_TIMEOUT_SECONDS=360`, the worker cancels the stale entry. Protection triggers use `MARK_PRICE` by default. `ALGO_PRICE_PROTECT=false` avoids delaying an emergency trigger because mark and contract prices temporarily diverge.
+The entry LIMIT order is monitored by the server; TradingView does not need to send a later exit signal for protection. On first partial fill, the worker cancels the unfilled remainder and protects the resulting fixed position. If no fill occurs within `ENTRY_ORDER_TIMEOUT_SECONDS=1800` (30 minutes), the worker cancels the stale entry. Protection triggers use `MARK_PRICE` by default. `ALGO_PRICE_PROTECT=false` avoids delaying an emergency trigger because mark and contract prices temporarily diverge.
 
 Only the required execution fields are modeled. Extra TradingView or legacy fields such as `positionMode`, `action`, `notional`, and any unknown metadata are accepted and ignored; they never override `side`, `amount`, `price`, or `reduceOnly`.
 

@@ -77,20 +77,39 @@ async def test_flat_position_cancels_remaining_sibling_algo(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unfilled_entry_is_canceled_after_timeout(tmp_path):
+async def test_unfilled_entry_is_not_canceled_before_thirty_minute_timeout(tmp_path):
     store = EventStore(tmp_path / "events.db")
     bracket = create_bracket(store)
     bracket["created_at"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=361)
+        datetime.now(timezone.utc) - timedelta(minutes=15)
+    ).isoformat()
+    client = AsyncMock()
+    client.query_order.return_value = {
+        "orderId": 101,
+        "status": "NEW",
+        "executedQty": "0",
+    }
+    worker = BracketWorker(client, store, Settings())
+
+    await worker._process(bracket)
+
+    client.cancel_order.assert_not_awaited()
+    assert store.get_bracket(bracket["id"])["status"] == "awaiting_entry"
+
+
+@pytest.mark.asyncio
+async def test_unfilled_entry_is_canceled_after_thirty_minute_timeout(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    bracket = create_bracket(store)
+    bracket["created_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1801)
     ).isoformat()
     client = AsyncMock()
     client.query_order.side_effect = [
         {"orderId": 101, "status": "NEW", "executedQty": "0"},
         {"orderId": 101, "status": "CANCELED", "executedQty": "0"},
     ]
-    worker = BracketWorker(
-        client, store, Settings(entry_order_timeout_seconds=360)
-    )
+    worker = BracketWorker(client, store, Settings())
 
     await worker._process(bracket)
 
@@ -103,7 +122,7 @@ async def test_timeout_race_fill_is_protected(tmp_path):
     store = EventStore(tmp_path / "events.db")
     bracket = create_bracket(store)
     bracket["created_at"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=361)
+        datetime.now(timezone.utc) - timedelta(seconds=1801)
     ).isoformat()
     client = AsyncMock()
     client.query_order.side_effect = [
@@ -119,9 +138,7 @@ async def test_timeout_race_fill_is_protected(tmp_path):
         {"algoId": 201},
         {"algoId": 202},
     ]
-    worker = BracketWorker(
-        client, store, Settings(entry_order_timeout_seconds=360)
-    )
+    worker = BracketWorker(client, store, Settings())
 
     await worker._process(bracket)
 

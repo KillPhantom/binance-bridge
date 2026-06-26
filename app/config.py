@@ -37,7 +37,7 @@ class Settings(BaseModel):
     position_poll_seconds: float = Field(default=5, gt=0)
     position_poll_interval: float = Field(default=0.5, gt=0)
     bracket_poll_interval: float = Field(default=1.0, gt=0)
-    entry_order_timeout_seconds: float = Field(default=360.0, gt=0)
+    entry_order_timeout_seconds: float = Field(default=1800.0, gt=0)
     algo_working_type: Literal["MARK_PRICE", "CONTRACT_PRICE"] = "MARK_PRICE"
     algo_price_protect: bool = False
     sqlite_path: Path = Path("./bridge.db")
@@ -66,7 +66,7 @@ class Settings(BaseModel):
             position_poll_interval=os.getenv("POSITION_POLL_INTERVAL", "0.5"),
             bracket_poll_interval=os.getenv("BRACKET_POLL_INTERVAL", "1"),
             entry_order_timeout_seconds=os.getenv(
-                "ENTRY_ORDER_TIMEOUT_SECONDS", "360"
+                "ENTRY_ORDER_TIMEOUT_SECONDS", "1800"
             ),
             algo_working_type=os.getenv("ALGO_WORKING_TYPE", "MARK_PRICE"),
             algo_price_protect=_env_bool("ALGO_PRICE_PROTECT", False),
