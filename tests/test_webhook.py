@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
-from app.config import Settings
+from app.config import BinanceAccount, Settings
 from app.db import EventStore
 from app.main import create_app
 from app.models import Position
@@ -39,6 +39,30 @@ def make_app(tmp_path, client=None):
     return create_app(settings, store, client), store, client
 
 
+def make_binance_mock():
+    client = AsyncMock()
+    client.dry_run = False
+    client.close.return_value = None
+    client.get_position.side_effect = [
+        Position(symbol="BTCUSDT", amount=0),
+        Position(symbol="BTCUSDT", amount=0.002),
+    ]
+    client.get_symbol_filters.return_value = {
+        "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"},
+        "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
+    }
+    client.cancel_all_open_orders.return_value = {"code": 200}
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
+    client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
+    client.place_market_order.return_value = {"orderId": 42}
+    client.place_limit_order.return_value = {"orderId": 43}
+    client.place_reduce_only_limit_order.return_value = {
+        "orderId": 44,
+        "reduceOnly": True,
+    }
+    return client
+
+
 def payload(**changes):
     result = {
         "token": "test-secret",
@@ -68,6 +92,29 @@ def test_duplicate_success_does_not_place_duplicate_order(tmp_path):
     assert second.status_code == 200
     assert second.json()["duplicate"] is True
     assert binance.place_limit_order.await_count == 1
+
+
+def test_webhook_forwards_to_all_configured_accounts(tmp_path):
+    settings = Settings(
+        webhook_secret="test-secret",
+        allowed_symbols=frozenset({"BTCUSDT"}),
+        sqlite_path=tmp_path / "events.db",
+        binance_accounts=(
+            BinanceAccount(name="primary", api_key="key-1", api_secret="secret-1"),
+            BinanceAccount(name="copy", api_key="key-2", api_secret="secret-2"),
+        ),
+    )
+    primary = make_binance_mock()
+    copy = make_binance_mock()
+    app = create_app(settings, clients={"primary": primary, "copy": copy})
+
+    with TestClient(app) as http:
+        response = http.post("/webhook/tradingview", json=payload())
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == "forwarded to 2 accounts"
+    primary.place_limit_order.assert_awaited_once()
+    copy.place_limit_order.assert_awaited_once()
 
 
 def test_wrong_token_rejected(tmp_path):

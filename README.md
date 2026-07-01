@@ -77,6 +77,29 @@ Production is the default base URL:
 BINANCE_BASE_URL=https://fapi.binance.com
 ```
 
+Single-account deployments can continue to use the original credential variables:
+
+```dotenv
+BINANCE_API_KEY=...
+BINANCE_API_SECRET=...
+```
+
+To forward every accepted webhook to multiple Binance accounts, name the accounts
+and provide one key/secret pair per name. Account names are converted to uppercase
+environment prefixes, with punctuation replaced by underscores:
+
+```dotenv
+BINANCE_ACCOUNT_NAMES=primary,copy-trader
+BINANCE_PRIMARY_API_KEY=...
+BINANCE_PRIMARY_API_SECRET=...
+BINANCE_COPY_TRADER_API_KEY=...
+BINANCE_COPY_TRADER_API_SECRET=...
+```
+
+Each configured account gets its own event/bracket SQLite database derived from
+`SQLITE_PATH`. For example, `SQLITE_PATH=bridge.db` with the two accounts above
+creates `bridge-primary.db` and `bridge-copy-trader.db`.
+
 For testnet, set the current Binance USDⓈ-M Futures testnet REST base URL in `BINANCE_BASE_URL`, add testnet credentials, and only then set `DRY_RUN=false`. Confirm the account is in One-way Mode before sending signals. The bridge rejects a returned position whose `positionSide` is not `BOTH`.
 
 Before production:
@@ -234,6 +257,9 @@ Pass the generated message as your Pine strategy order's `alert_message` value.
 sqlite3 bridge.db 'select event_id,received_at,symbol,side,reduce_only,price,amount,status,error from events order by id desc limit 20;'
 sqlite3 bridge.db 'select event_id,symbol,entry_order_id,status,stop_algo_id,take_profit_algo_id,error from brackets order by id desc limit 20;'
 ```
+
+For multi-account deployments, inspect the account-specific databases such as
+`bridge-primary.db` and `bridge-copy-trader.db`.
 
 If an event failed, first inspect Binance's actual position and the service logs. Resend the identical payload with `"retry": true` only when it is safe. Never change the meaning of an existing `event_id`.
 

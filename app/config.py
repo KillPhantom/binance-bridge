@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -25,10 +26,36 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be true or false, not {value!r}")
 
 
+def _env_list(name: str) -> tuple[str, ...]:
+    import os
+
+    value = os.getenv(name, "")
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _account_env_prefix(name: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
+
+
+class BinanceAccount(BaseModel):
+    name: str = Field(min_length=1)
+    api_key: str = ""
+    api_secret: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("account name is required")
+        return normalized
+
+
 class Settings(BaseModel):
     webhook_secret: str = Field(default="change_me")
     binance_api_key: str = ""
     binance_api_secret: str = ""
+    binance_accounts: tuple[BinanceAccount, ...] = ()
     binance_base_url: str = "https://fapi.binance.com"
     allowed_symbols: frozenset[str] = frozenset({"BTCUSDT", "ETHUSDT"})
     allow_add: bool = True
@@ -49,14 +76,45 @@ class Settings(BaseModel):
             return frozenset(x.strip().upper() for x in value.split(",") if x.strip())
         return value
 
+    def effective_binance_accounts(self) -> tuple[BinanceAccount, ...]:
+        if self.binance_accounts:
+            return self.binance_accounts
+        return (
+            BinanceAccount(
+                name="default",
+                api_key=self.binance_api_key,
+                api_secret=self.binance_api_secret,
+            ),
+        )
+
+    def for_binance_account(self, account: BinanceAccount) -> "Settings":
+        return self.model_copy(
+            update={
+                "binance_api_key": account.api_key,
+                "binance_api_secret": account.api_secret,
+            }
+        )
+
     @classmethod
     def from_env(cls) -> "Settings":
         import os
 
+        account_names = _env_list("BINANCE_ACCOUNT_NAMES")
+        accounts = tuple(
+            BinanceAccount(
+                name=name,
+                api_key=os.getenv(f"BINANCE_{_account_env_prefix(name)}_API_KEY", ""),
+                api_secret=os.getenv(
+                    f"BINANCE_{_account_env_prefix(name)}_API_SECRET", ""
+                ),
+            )
+            for name in account_names
+        )
         return cls(
             webhook_secret=os.getenv("WEBHOOK_SECRET", "change_me"),
             binance_api_key=os.getenv("BINANCE_API_KEY", ""),
             binance_api_secret=os.getenv("BINANCE_API_SECRET", ""),
+            binance_accounts=accounts,
             binance_base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
             allowed_symbols=os.getenv("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT"),
             allow_add=_env_bool("ALLOW_ADD", True),
