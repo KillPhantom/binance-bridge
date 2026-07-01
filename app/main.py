@@ -255,10 +255,12 @@ def create_app(
         if not eligible_runtimes:
             raise HTTPException(status_code=400, detail="unsupported symbol")
 
-        account_results = [
-            await execute_for_account(runtime, signal, payload)
-            for runtime in eligible_runtimes
-        ]
+        account_results = await asyncio.gather(
+            *(
+                execute_for_account(runtime, signal, payload)
+                for runtime in eligible_runtimes
+            )
+        )
         conflicts = [
             result for result in account_results if result["status"] == "conflict"
         ]

@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
@@ -115,6 +116,38 @@ def test_webhook_forwards_to_all_configured_accounts(tmp_path):
     assert response.json()["summary"] == "forwarded to 2 accounts"
     primary.place_limit_order.assert_awaited_once()
     copy.place_limit_order.assert_awaited_once()
+
+
+def test_webhook_forwards_to_accounts_concurrently(tmp_path):
+    settings = Settings(
+        webhook_secret="test-secret",
+        allowed_symbols=frozenset({"BTCUSDT"}),
+        sqlite_path=tmp_path / "events.db",
+        binance_accounts=(
+            BinanceAccount(name="primary", api_key="key-1", api_secret="secret-1"),
+            BinanceAccount(name="copy", api_key="key-2", api_secret="secret-2"),
+        ),
+    )
+    active = {"count": 0, "max": 0}
+
+    async def tracked_position(symbol):
+        active["count"] += 1
+        active["max"] = max(active["max"], active["count"])
+        await asyncio.sleep(0.01)
+        active["count"] -= 1
+        return Position(symbol=symbol, amount=0)
+
+    primary = make_binance_mock()
+    copy = make_binance_mock()
+    primary.get_position.side_effect = tracked_position
+    copy.get_position.side_effect = tracked_position
+    app = create_app(settings, clients={"primary": primary, "copy": copy})
+
+    with TestClient(app) as http:
+        response = http.post("/webhook/tradingview", json=payload())
+
+    assert response.status_code == 200
+    assert active["max"] == 2
 
 
 def test_webhook_only_forwards_to_accounts_allowing_symbol(tmp_path):
