@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest
 
+from app.binance_client import BinanceAPIError
 from app.bracket_worker import BracketWorker
 from app.config import Settings
 from app.db import EventStore
@@ -52,6 +54,40 @@ async def test_partial_fill_cancels_remainder_and_installs_two_close_all_algos(t
     assert updated["status"] == "protected"
     assert updated["stop_algo_id"] == 201
     assert updated["take_profit_algo_id"] == 202
+
+
+@pytest.mark.asyncio
+async def test_immediate_trigger_rejection_closes_position_with_market_order(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    bracket = create_bracket(store)
+    client = AsyncMock()
+    client.query_order.return_value = {
+        "orderId": 101,
+        "status": "FILLED",
+        "executedQty": "0.002",
+    }
+    client.get_position.return_value = Position(symbol="BTCUSDT", amount="0.002")
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
+    client.get_symbol_filters.return_value = {
+        "PRICE_FILTER": {"tickSize": "0.10"}
+    }
+    client.place_close_position_algo_order.side_effect = BinanceAPIError(
+        400, "Order would immediately trigger."
+    )
+    client.place_market_order.return_value = {"orderId": 301, "status": "FILLED"}
+    worker = BracketWorker(client, store, Settings())
+
+    await worker._process(bracket)
+
+    client.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), True
+    )
+    assert client.cancel_all_algo_open_orders.await_count == 2
+    updated = store.get_bracket(bracket["id"])
+    assert updated["status"] == "closed"
+    assert updated["stop_algo_id"] is None
+    assert updated["take_profit_algo_id"] is None
+    assert updated["error"] is None
 
 
 @pytest.mark.asyncio

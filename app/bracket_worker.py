@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from .binance_client import BinanceClient
+from .binance_client import BinanceAPIError, BinanceClient
 from .config import Settings
 from .db import EventStore
 from .utils import round_step_size
@@ -145,36 +145,44 @@ class BracketWorker:
     async def _install_protection(self, bracket: dict) -> None:
         exit_side = "SELL" if bracket["entry_side"] == "BUY" else "BUY"
         bracket_id = int(bracket["id"])
-        if bracket.get("stop_algo_id") is None:
-            stop_price = await self._normalized_trigger(
-                bracket["symbol"], bracket["stop_loss_price"]
-            )
-            response = await self.client.place_close_position_algo_order(
-                bracket["symbol"],
-                exit_side,
-                "STOP_MARKET",
-                stop_price,
-                f"tvb{bracket_id}sl",
-            )
-            stop_algo_id = int(response["algoId"])
-            self.store.update_bracket(bracket_id, stop_algo_id=stop_algo_id, error=None)
-            bracket["stop_algo_id"] = stop_algo_id
-        if bracket.get("take_profit_algo_id") is None:
-            take_profit_price = await self._normalized_trigger(
-                bracket["symbol"], bracket["take_profit_price"]
-            )
-            response = await self.client.place_close_position_algo_order(
-                bracket["symbol"],
-                exit_side,
-                "TAKE_PROFIT_MARKET",
-                take_profit_price,
-                f"tvb{bracket_id}tp",
-            )
-            take_profit_algo_id = int(response["algoId"])
-            self.store.update_bracket(
-                bracket_id, take_profit_algo_id=take_profit_algo_id, error=None
-            )
-            bracket["take_profit_algo_id"] = take_profit_algo_id
+        try:
+            if bracket.get("stop_algo_id") is None:
+                stop_price = await self._normalized_trigger(
+                    bracket["symbol"], bracket["stop_loss_price"]
+                )
+                response = await self.client.place_close_position_algo_order(
+                    bracket["symbol"],
+                    exit_side,
+                    "STOP_MARKET",
+                    stop_price,
+                    f"tvb{bracket_id}sl",
+                )
+                stop_algo_id = int(response["algoId"])
+                self.store.update_bracket(
+                    bracket_id, stop_algo_id=stop_algo_id, error=None
+                )
+                bracket["stop_algo_id"] = stop_algo_id
+            if bracket.get("take_profit_algo_id") is None:
+                take_profit_price = await self._normalized_trigger(
+                    bracket["symbol"], bracket["take_profit_price"]
+                )
+                response = await self.client.place_close_position_algo_order(
+                    bracket["symbol"],
+                    exit_side,
+                    "TAKE_PROFIT_MARKET",
+                    take_profit_price,
+                    f"tvb{bracket_id}tp",
+                )
+                take_profit_algo_id = int(response["algoId"])
+                self.store.update_bracket(
+                    bracket_id, take_profit_algo_id=take_profit_algo_id, error=None
+                )
+                bracket["take_profit_algo_id"] = take_profit_algo_id
+        except BinanceAPIError as exc:
+            if not self._is_immediate_trigger_error(exc):
+                raise
+            await self._close_immediately_triggered_position(bracket, exit_side, exc)
+            return
         self.store.update_bracket(bracket_id, status="protected", error=None)
         logger.info(
             "bracket protected bracket_id=%s symbol=%s stop_algo_id=%s tp_algo_id=%s",
@@ -182,6 +190,62 @@ class BracketWorker:
             bracket["symbol"],
             bracket["stop_algo_id"],
             bracket["take_profit_algo_id"],
+        )
+
+    @staticmethod
+    def _is_immediate_trigger_error(exc: BinanceAPIError) -> bool:
+        return (
+            exc.status_code == 400
+            and "would immediately trigger" in str(exc).lower()
+        )
+
+    async def _close_immediately_triggered_position(
+        self, bracket: dict, exit_side: str, exc: BinanceAPIError
+    ) -> None:
+        bracket_id = int(bracket["id"])
+        symbol = bracket["symbol"]
+        expected = "long" if bracket["entry_side"] == "BUY" else "short"
+
+        await self.client.cancel_all_algo_open_orders(symbol)
+        position = await self.client.get_position(symbol)
+        if position.side == expected:
+            await self.client.place_market_order(
+                symbol, exit_side, abs(position.amount), True
+            )
+            status = "closed"
+            error = None
+            logger.warning(
+                "protection trigger already crossed; closed position with reduce-only market order "
+                "bracket_id=%s symbol=%s side=%s quantity=%s error=%s",
+                bracket_id,
+                symbol,
+                exit_side,
+                abs(position.amount),
+                exc,
+            )
+        else:
+            status = "closed" if position.side == "flat" else "position_replaced"
+            error = (
+                None
+                if position.side == "flat"
+                else f"expected {expected}, found {position.side}"
+            )
+            logger.warning(
+                "protection trigger already crossed, but position no longer matched bracket "
+                "bracket_id=%s symbol=%s expected=%s found=%s error=%s",
+                bracket_id,
+                symbol,
+                expected,
+                position.side,
+                exc,
+            )
+
+        self.store.update_bracket(
+            bracket_id,
+            status=status,
+            stop_algo_id=None,
+            take_profit_algo_id=None,
+            error=error,
         )
 
     async def _reconcile_protected(self, bracket: dict) -> None:
