@@ -247,12 +247,17 @@ def create_app(
             raise HTTPException(status_code=400, detail="invalid webhook payload") from exc
         if not hmac.compare_digest(signal.token, settings.webhook_secret):
             raise HTTPException(status_code=401, detail="invalid token")
-        if signal.symbol not in settings.allowed_symbols:
+        eligible_runtimes = [
+            runtime
+            for runtime in runtimes
+            if signal.symbol in runtime.settings.allowed_symbols
+        ]
+        if not eligible_runtimes:
             raise HTTPException(status_code=400, detail="unsupported symbol")
 
         account_results = [
             await execute_for_account(runtime, signal, payload)
-            for runtime in runtimes
+            for runtime in eligible_runtimes
         ]
         conflicts = [
             result for result in account_results if result["status"] == "conflict"
@@ -272,7 +277,7 @@ def create_app(
                 "accounts": failures
             }
             raise HTTPException(status_code=500, detail=detail)
-        if len(account_results) == 1:
+        if len(runtimes) == 1:
             result = account_results[0]
             response = {
                 "ok": True,

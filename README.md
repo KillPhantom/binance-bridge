@@ -96,6 +96,28 @@ BINANCE_COPY_TRADER_API_KEY=...
 BINANCE_COPY_TRADER_API_SECRET=...
 ```
 
+By default, every account uses the global `ALLOWED_SYMBOLS` list. To give each
+account its own symbol whitelist, set `BINANCE_<ACCOUNT>_ALLOWED_SYMBOLS`.
+Signals are forwarded only to accounts that allow the webhook symbol:
+
+```dotenv
+ALLOWED_SYMBOLS=ETHUSDT
+
+BINANCE_ACCOUNT_NAMES=primary,copy1,copy2
+BINANCE_PRIMARY_API_KEY=...
+BINANCE_PRIMARY_API_SECRET=...
+BINANCE_PRIMARY_ALLOWED_SYMBOLS=ETHUSDT,SOLUSDT
+BINANCE_COPY1_API_KEY=...
+BINANCE_COPY1_API_SECRET=...
+BINANCE_COPY1_ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_COPY2_API_KEY=...
+BINANCE_COPY2_API_SECRET=...
+BINANCE_COPY2_ALLOWED_SYMBOLS=ETHUSDT
+```
+
+With this example, `ETHUSDT` signals go to all three accounts, while `SOLUSDT`
+signals go only to `primary`.
+
 Each configured account gets its own event/bracket SQLite database derived from
 `SQLITE_PATH`. For example, `SQLITE_PATH=bridge.db` with the two accounts above
 creates `bridge-primary.db` and `bridge-copy-trader.db`.

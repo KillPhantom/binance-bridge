@@ -37,10 +37,15 @@ def _account_env_prefix(name: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
 
 
+def _parse_symbols(value: str) -> frozenset[str]:
+    return frozenset(x.strip().upper() for x in value.split(",") if x.strip())
+
+
 class BinanceAccount(BaseModel):
     name: str = Field(min_length=1)
     api_key: str = ""
     api_secret: str = ""
+    allowed_symbols: frozenset[str] | None = None
 
     @field_validator("name")
     @classmethod
@@ -73,7 +78,7 @@ class Settings(BaseModel):
     @classmethod
     def parse_symbols(cls, value: object) -> object:
         if isinstance(value, str):
-            return frozenset(x.strip().upper() for x in value.split(",") if x.strip())
+            return _parse_symbols(value)
         return value
 
     def effective_binance_accounts(self) -> tuple[BinanceAccount, ...]:
@@ -92,6 +97,7 @@ class Settings(BaseModel):
             update={
                 "binance_api_key": account.api_key,
                 "binance_api_secret": account.api_secret,
+                "allowed_symbols": account.allowed_symbols or self.allowed_symbols,
             }
         )
 
@@ -106,6 +112,15 @@ class Settings(BaseModel):
                 api_key=os.getenv(f"BINANCE_{_account_env_prefix(name)}_API_KEY", ""),
                 api_secret=os.getenv(
                     f"BINANCE_{_account_env_prefix(name)}_API_SECRET", ""
+                ),
+                allowed_symbols=(
+                    _parse_symbols(symbols)
+                    if (
+                        symbols := os.getenv(
+                            f"BINANCE_{_account_env_prefix(name)}_ALLOWED_SYMBOLS"
+                        )
+                    )
+                    else None
                 ),
             )
             for name in account_names

@@ -117,6 +117,53 @@ def test_webhook_forwards_to_all_configured_accounts(tmp_path):
     copy.place_limit_order.assert_awaited_once()
 
 
+def test_webhook_only_forwards_to_accounts_allowing_symbol(tmp_path):
+    settings = Settings(
+        webhook_secret="test-secret",
+        allowed_symbols=frozenset({"ETHUSDT"}),
+        sqlite_path=tmp_path / "events.db",
+        binance_accounts=(
+            BinanceAccount(
+                name="primary",
+                api_key="key-1",
+                api_secret="secret-1",
+                allowed_symbols=frozenset({"ETHUSDT", "SOLUSDT"}),
+            ),
+            BinanceAccount(
+                name="copy1",
+                api_key="key-2",
+                api_secret="secret-2",
+                allowed_symbols=frozenset({"ETHUSDT"}),
+            ),
+            BinanceAccount(
+                name="copy2",
+                api_key="key-3",
+                api_secret="secret-3",
+                allowed_symbols=frozenset({"ETHUSDT"}),
+            ),
+        ),
+    )
+    primary = make_binance_mock()
+    copy1 = make_binance_mock()
+    copy2 = make_binance_mock()
+    app = create_app(
+        settings, clients={"primary": primary, "copy1": copy1, "copy2": copy2}
+    )
+
+    with TestClient(app) as http:
+        response = http.post(
+            "/webhook/tradingview",
+            json=payload(symbol="SOLUSDT", event_id="event-sol"),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == "forwarded to 1 accounts"
+    assert response.json()["accounts"][0]["account"] == "primary"
+    primary.place_limit_order.assert_awaited_once()
+    copy1.place_limit_order.assert_not_awaited()
+    copy2.place_limit_order.assert_not_awaited()
+
+
 def test_wrong_token_rejected(tmp_path):
     app, _, binance = make_app(tmp_path)
     with TestClient(app) as http:
