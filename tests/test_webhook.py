@@ -118,6 +118,37 @@ def test_webhook_forwards_to_all_configured_accounts(tmp_path):
     copy.place_limit_order.assert_awaited_once()
 
 
+def test_webhook_applies_account_amount_multiplier(tmp_path):
+    settings = Settings(
+        webhook_secret="test-secret",
+        allowed_symbols=frozenset({"BTCUSDT"}),
+        sqlite_path=tmp_path / "events.db",
+        binance_accounts=(
+            BinanceAccount(name="primary", api_key="key-1", api_secret="secret-1"),
+            BinanceAccount(
+                name="copy",
+                api_key="key-2",
+                api_secret="secret-2",
+                amount_multiplier=Decimal("10"),
+            ),
+        ),
+    )
+    primary = make_binance_mock()
+    copy = make_binance_mock()
+    app = create_app(settings, clients={"primary": primary, "copy": copy})
+
+    with TestClient(app) as http:
+        response = http.post("/webhook/tradingview", json=payload())
+
+    assert response.status_code == 200
+    primary.place_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
+    )
+    copy.place_limit_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.02"), Decimal("40000")
+    )
+
+
 def test_webhook_forwards_to_accounts_concurrently(tmp_path):
     settings = Settings(
         webhook_secret="test-secret",

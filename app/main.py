@@ -5,6 +5,7 @@ import hmac
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 import re
 from typing import Any
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AccountRuntime:
     name: str
+    amount_multiplier: Decimal
     settings: Settings
     store: EventStore
     client: BinanceClient
@@ -70,6 +72,7 @@ def _build_account_runtime(
     )
     return AccountRuntime(
         name=account.name,
+        amount_multiplier=account.amount_multiplier,
         settings=account_settings,
         store=account_store,
         client=account_client,
@@ -152,18 +155,27 @@ def create_app(
     async def execute_for_account(
         runtime: AccountRuntime, signal: TradingViewSignal, payload: dict[str, Any]
     ) -> dict[str, Any]:
+        account_signal = signal
+        account_payload = payload
+        if not signal.reduce_only and runtime.amount_multiplier != Decimal("1"):
+            adjusted_amount = signal.amount * runtime.amount_multiplier
+            account_signal = signal.model_copy(update={"amount": adjusted_amount})
+            account_payload = dict(payload)
+            account_payload["amount"] = str(adjusted_amount)
+
         logger.info(
-            "webhook account=%s event_id=%s symbol=%s side=%s reduce_only=%s price=%s amount=%s",
+            "webhook account=%s event_id=%s symbol=%s side=%s reduce_only=%s price=%s amount=%s multiplier=%s",
             runtime.name,
-            signal.event_id,
-            signal.symbol,
-            signal.side,
-            signal.reduce_only,
-            signal.price,
-            signal.amount,
+            account_signal.event_id,
+            account_signal.symbol,
+            account_signal.side,
+            account_signal.reduce_only,
+            account_signal.price,
+            account_signal.amount,
+            runtime.amount_multiplier,
         )
 
-        claim = runtime.store.claim(signal, payload)
+        claim = runtime.store.claim(account_signal, account_payload)
         if claim == "duplicate_success":
             return {
                 "account": runtime.name,
@@ -188,9 +200,9 @@ def create_app(
             def finalize_execution(result):
                 if runtime.settings.dry_run:
                     return
-                if signal.reduce_only:
+                if account_signal.reduce_only:
                     runtime.store.deactivate_active_brackets(
-                        signal.symbol, "manual_reduce"
+                        account_signal.symbol, "manual_reduce"
                     )
                     return
                 order_response = (
@@ -201,17 +213,17 @@ def create_app(
                     if order_id is None:
                         raise RuntimeError("Binance opening order response has no orderId")
                     runtime.store.create_bracket(
-                        signal.event_id,
-                        signal.symbol,
+                        account_signal.event_id,
+                        account_signal.symbol,
                         int(order_id),
-                        signal.side.upper(),
-                        str(signal.stop_loss_price),
-                        str(signal.take_profit_price),
+                        account_signal.side.upper(),
+                        str(account_signal.stop_loss_price),
+                        str(account_signal.take_profit_price),
                     )
 
-            result = await runtime.engine.handle_signal(signal, finalize_execution)
+            result = await runtime.engine.handle_signal(account_signal, finalize_execution)
             runtime.store.mark_success(
-                signal.event_id,
+                account_signal.event_id,
                 result.position_before,
                 result.position_after,
                 result.binance_responses,
@@ -224,12 +236,12 @@ def create_app(
             }
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
-            runtime.store.mark_failed(signal.event_id, error)
+            runtime.store.mark_failed(account_signal.event_id, error)
             logger.exception(
                 "webhook execution failed account=%s event_id=%s symbol=%s",
                 runtime.name,
-                signal.event_id,
-                signal.symbol,
+                account_signal.event_id,
+                account_signal.symbol,
             )
             return {
                 "account": runtime.name,

@@ -107,16 +107,23 @@ BINANCE_ACCOUNT_NAMES=primary,copy1,copy2
 BINANCE_PRIMARY_API_KEY=...
 BINANCE_PRIMARY_API_SECRET=...
 BINANCE_PRIMARY_ALLOWED_SYMBOLS=ETHUSDT,SOLUSDT
+BINANCE_PRIMARY_AMOUNT_MULTIPLIER=1
 BINANCE_COPY1_API_KEY=...
 BINANCE_COPY1_API_SECRET=...
 BINANCE_COPY1_ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_COPY1_AMOUNT_MULTIPLIER=10
 BINANCE_COPY2_API_KEY=...
 BINANCE_COPY2_API_SECRET=...
 BINANCE_COPY2_ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_COPY2_AMOUNT_MULTIPLIER=100
 ```
 
 With this example, `ETHUSDT` signals go to all three accounts, while `SOLUSDT`
 signals go only to `primary`.
+
+`BINANCE_<ACCOUNT>_AMOUNT_MULTIPLIER` scales the webhook `amount` before opening
+orders for that account. It defaults to `1`. Reduce-only signals continue to use
+the account's live Binance position size rather than the webhook amount.
 
 Each configured account gets its own event/bracket SQLite database derived from
 `SQLITE_PATH`. For example, `SQLITE_PATH=bridge.db` with the two accounts above

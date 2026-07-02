@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 import re
@@ -46,6 +47,7 @@ class BinanceAccount(BaseModel):
     api_key: str = ""
     api_secret: str = ""
     allowed_symbols: frozenset[str] | None = None
+    amount_multiplier: Decimal = Field(default=Decimal("1"), gt=0)
 
     @field_validator("name")
     @classmethod
@@ -121,6 +123,9 @@ class Settings(BaseModel):
                         )
                     )
                     else None
+                ),
+                amount_multiplier=os.getenv(
+                    f"BINANCE_{_account_env_prefix(name)}_AMOUNT_MULTIPLIER", "1"
                 ),
             )
             for name in account_names
