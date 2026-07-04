@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
@@ -11,16 +12,25 @@ from app.db import EventStore
 from app.models import Position
 
 
-def create_bracket(store: EventStore) -> dict:
+def create_bracket(
+    store: EventStore,
+    event_id: str = "entry-1",
+    symbol: str = "BTCUSDT",
+    entry_order_id: int = 101,
+) -> dict:
     store.create_bracket(
-        event_id="entry-1",
-        symbol="BTCUSDT",
-        entry_order_id=101,
+        event_id=event_id,
+        symbol=symbol,
+        entry_order_id=entry_order_id,
         entry_side="BUY",
         stop_loss_price="39000",
         take_profit_price="41000",
     )
-    return store.list_active_brackets()[0]
+    return next(
+        bracket
+        for bracket in store.list_active_brackets()
+        if bracket["event_id"] == event_id
+    )
 
 
 @pytest.mark.asyncio
@@ -110,6 +120,57 @@ async def test_flat_position_cancels_remaining_sibling_algo(tmp_path):
 
     client.cancel_all_algo_open_orders.assert_awaited_once_with("BTCUSDT")
     assert store.get_bracket(bracket["id"])["status"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_run_prioritizes_entry_and_throttles_protected_reconciliation(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    protected = create_bracket(
+        store, event_id="entry-btc", symbol="BTCUSDT", entry_order_id=101
+    )
+    store.update_bracket(
+        protected["id"],
+        status="protected",
+        stop_algo_id=201,
+        take_profit_algo_id=202,
+    )
+    awaiting = create_bracket(
+        store, event_id="entry-eth", symbol="ETHUSDT", entry_order_id=102
+    )
+    client = AsyncMock()
+    client.query_order.return_value = {
+        "orderId": 102,
+        "status": "FILLED",
+        "executedQty": "0.002",
+    }
+    client.get_position.return_value = Position(symbol="ETHUSDT", amount="0.002")
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
+    client.get_symbol_filters.return_value = {
+        "PRICE_FILTER": {"tickSize": "0.10"}
+    }
+    worker = BracketWorker(
+        client,
+        store,
+        Settings(bracket_poll_interval=60, protected_reconcile_interval=60),
+    )
+    worker._last_protected_reconcile[protected["id"]] = (
+        asyncio.get_running_loop().time()
+    )
+    algo_ids = iter([301, 302])
+
+    async def place_algo(*args, **kwargs):
+        algo_id = next(algo_ids)
+        if algo_id == 302:
+            worker.stop()
+        return {"algoId": algo_id, "closePosition": True}
+
+    client.place_close_position_algo_order.side_effect = place_algo
+
+    await worker.run()
+
+    client.query_order.assert_awaited_once_with("ETHUSDT", awaiting["entry_order_id"])
+    client.get_position.assert_awaited_once_with("ETHUSDT")
+    assert store.get_bracket(awaiting["id"])["status"] == "protected"
 
 
 @pytest.mark.asyncio

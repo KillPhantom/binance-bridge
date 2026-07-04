@@ -31,13 +31,31 @@ class BracketWorker:
         self._own_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.lock_for = lock_for or (lambda symbol: self._own_locks[symbol])
         self._stopping = asyncio.Event()
+        self._last_protected_reconcile: dict[int, float] = {}
 
     def stop(self) -> None:
         self._stopping.set()
 
+    @staticmethod
+    def _priority(bracket: dict) -> int:
+        return 1 if bracket["status"] == "protected" else 0
+
+    def _protected_reconcile_due(self, bracket_id: int, now: float) -> bool:
+        last_checked = self._last_protected_reconcile.get(bracket_id)
+        return (
+            last_checked is None
+            or now - last_checked >= self.settings.protected_reconcile_interval
+        )
+
     async def run(self) -> None:
+        loop = asyncio.get_running_loop()
         while not self._stopping.is_set():
-            for bracket in self.store.list_active_brackets():
+            for bracket in sorted(self.store.list_active_brackets(), key=self._priority):
+                bracket_id = int(bracket["id"])
+                if bracket["status"] == "protected" and not self._protected_reconcile_due(
+                    bracket_id, loop.time()
+                ):
+                    continue
                 try:
                     async with self.lock_for(bracket["symbol"]):
                         current = self.store.get_bracket(bracket["id"])
@@ -46,7 +64,19 @@ class BracketWorker:
                             "protecting",
                             "protected",
                         }:
-                            await self._process(current)
+                            if current["status"] == "protected":
+                                if not self._protected_reconcile_due(
+                                    bracket_id, loop.time()
+                                ):
+                                    continue
+                                try:
+                                    await self._process(current)
+                                finally:
+                                    self._last_protected_reconcile[
+                                        bracket_id
+                                    ] = loop.time()
+                            else:
+                                await self._process(current)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:

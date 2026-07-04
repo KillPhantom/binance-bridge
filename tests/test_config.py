@@ -20,6 +20,7 @@ def test_named_binance_accounts_are_read_from_env(monkeypatch):
     monkeypatch.setenv("BINANCE_COPY_TRADER_API_SECRET", "secret-2")
     monkeypatch.setenv("BINANCE_COPY_TRADER_ALLOWED_SYMBOLS", "ETHUSDT")
     monkeypatch.setenv("BINANCE_COPY_TRADER_AMOUNT_MULTIPLIER", "10")
+    monkeypatch.setenv("PROTECTED_RECONCILE_INTERVAL", "30")
 
     settings = Settings.from_env()
 
@@ -37,3 +38,4 @@ def test_named_binance_accounts_are_read_from_env(monkeypatch):
     assert settings.binance_accounts[1].allowed_symbols == frozenset({"ETHUSDT"})
     assert settings.binance_accounts[0].amount_multiplier == Decimal("1")
     assert settings.binance_accounts[1].amount_multiplier == Decimal("10")
+    assert settings.protected_reconcile_interval == 30

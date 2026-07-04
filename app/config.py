@@ -70,7 +70,8 @@ class Settings(BaseModel):
     recv_window: int = Field(default=5000, ge=1, le=60000)
     position_poll_seconds: float = Field(default=5, gt=0)
     position_poll_interval: float = Field(default=0.5, gt=0)
-    bracket_poll_interval: float = Field(default=1.0, gt=0)
+    bracket_poll_interval: float = Field(default=0.5, gt=0)
+    protected_reconcile_interval: float = Field(default=10.0, gt=0)
     entry_order_timeout_seconds: float = Field(default=1800.0, gt=0)
     algo_working_type: Literal["MARK_PRICE", "CONTRACT_PRICE"] = "MARK_PRICE"
     algo_price_protect: bool = False
@@ -142,7 +143,10 @@ class Settings(BaseModel):
             recv_window=os.getenv("RECV_WINDOW", "5000"),
             position_poll_seconds=os.getenv("POSITION_POLL_SECONDS", "5"),
             position_poll_interval=os.getenv("POSITION_POLL_INTERVAL", "0.5"),
-            bracket_poll_interval=os.getenv("BRACKET_POLL_INTERVAL", "1"),
+            bracket_poll_interval=os.getenv("BRACKET_POLL_INTERVAL", "0.5"),
+            protected_reconcile_interval=os.getenv(
+                "PROTECTED_RECONCILE_INTERVAL", "10"
+            ),
             entry_order_timeout_seconds=os.getenv(
                 "ENTRY_ORDER_TIMEOUT_SECONDS", "1800"
             ),

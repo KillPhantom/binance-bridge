@@ -269,6 +269,12 @@ All webhook orders are LIMIT GTC. A reduce-only order may remain pending until i
 
 The entry LIMIT order is monitored by the server; TradingView does not need to send a later exit signal for protection. On first partial fill, the worker cancels the unfilled remainder and protects the resulting fixed position. If no fill occurs within `ENTRY_ORDER_TIMEOUT_SECONDS=1800` (30 minutes), the worker cancels the stale entry. Protection triggers use `MARK_PRICE` by default. `ALGO_PRICE_PROTECT=false` avoids delaying an emergency trigger because mark and contract prices temporarily diverge.
 
+`BRACKET_POLL_INTERVAL` controls the high-priority loop for entry fills and
+protection installation. `PROTECTED_RECONCILE_INTERVAL` controls the lower-priority
+recheck for already protected positions, reducing `positionRisk` request weight.
+For example, `BRACKET_POLL_INTERVAL=0.5` and `PROTECTED_RECONCILE_INTERVAL=10`
+checks new entries quickly while checking protected positions every 10 seconds.
+
 Only the required execution fields are modeled. Extra TradingView or legacy fields such as `positionMode`, `action`, `notional`, and any unknown metadata are accepted and ignored; they never override `side`, `amount`, `price`, or `reduceOnly`.
 
 In the TradingView alert dialog:
