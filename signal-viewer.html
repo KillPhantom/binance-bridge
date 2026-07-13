@@ -620,33 +620,31 @@
       if (!tables.includes("events")) {
         throw new Error("This database does not contain an events table.");
       }
-      const eventColumns = tableColumns(state.db, "events");
       state.events = rowsFromQuery(state.db, `
-        SELECT ${selectColumn(eventColumns, "id")},
-               ${selectColumn(eventColumns, "event_id")},
-               ${selectColumn(eventColumns, "received_at")},
-               ${selectColumn(eventColumns, "symbol")},
-               ${selectColumn(eventColumns, "action", "NULL")},
-               ${selectColumn(eventColumns, "side", "action")},
-               ${selectColumn(eventColumns, "reduce_only", "NULL")},
-               ${selectColumn(eventColumns, "price", "NULL")},
-               ${selectColumn(eventColumns, "amount", "notional")},
-               ${selectColumn(eventColumns, "notional", "NULL")},
-               ${selectColumn(eventColumns, "payload_json")},
-               ${selectColumn(eventColumns, "status")},
-               ${selectColumn(eventColumns, "error", "NULL")},
-               ${selectColumn(eventColumns, "position_before_json", "NULL")},
-               ${selectColumn(eventColumns, "position_after_json", "NULL")},
-               ${selectColumn(eventColumns, "binance_responses_json", "NULL")}
+        SELECT *
         FROM events
         ORDER BY datetime(received_at) DESC, id DESC
-      `).map(row => ({ ...row, payload: parseJson(row.payload_json) }));
+      `).map(row => {
+        const payload = parseJson(row.payload_json) || {};
+        return {
+          ...row,
+          action: row.action ?? row.side ?? payload.side ?? null,
+          side: row.side ?? row.action ?? payload.side ?? null,
+          reduce_only: row.reduce_only ?? payload.reduceOnly ?? null,
+          price: row.price ?? payload.price ?? null,
+          amount: row.amount ?? row.notional ?? payload.amount ?? null,
+          notional: row.notional ?? row.amount ?? payload.amount ?? null,
+          error: row.error ?? null,
+          position_before_json: row.position_before_json ?? null,
+          position_after_json: row.position_after_json ?? null,
+          binance_responses_json: row.binance_responses_json ?? null,
+          payload
+        };
+      });
 
       state.brackets = tables.includes("brackets")
         ? rowsFromQuery(state.db, `
-            SELECT id, event_id, symbol, entry_order_id, entry_side,
-                   stop_loss_price, take_profit_price, status, stop_algo_id,
-                   take_profit_algo_id, error, created_at, updated_at
+            SELECT *
             FROM brackets
             ORDER BY datetime(updated_at) DESC, id DESC
           `)
