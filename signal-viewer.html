@@ -558,7 +558,20 @@
       }
     }
 
+    function setText(element, value) {
+      if (element) element.textContent = value;
+    }
+
+    function setHtml(element, value) {
+      if (element) element.innerHTML = value;
+    }
+
+    function getValue(element, fallback = "") {
+      return element?.value ?? fallback;
+    }
+
     function setNotice(message, isError = false) {
+      if (!els.notice) return;
       els.notice.classList.add("show");
       els.notice.style.borderColor = isError ? "#fecdca" : "#b2ddff";
       els.notice.style.background = isError ? "#fef3f2" : "#eff8ff";
@@ -685,21 +698,21 @@
     }
 
     function rebuildFilters() {
-      const currentSymbol = els.symbolFilter.value;
-      const currentStatus = els.statusFilter.value;
+      const currentSymbol = getValue(els.symbolFilter);
+      const currentStatus = getValue(els.statusFilter);
       const symbols = [...new Set(state.events.map(row => row.symbol).filter(Boolean))].sort();
       const statuses = [...new Set(state.events.map(row => row.status).filter(Boolean))].sort();
-      els.symbolFilter.innerHTML = `<option value="">All symbols</option>${symbols.map(symbol => `<option value="${escapeHtml(symbol)}">${escapeHtml(symbol)}</option>`).join("")}`;
-      els.statusFilter.innerHTML = `<option value="">All statuses</option>${statuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join("")}`;
-      els.symbolFilter.value = symbols.includes(currentSymbol) ? currentSymbol : "";
-      els.statusFilter.value = statuses.includes(currentStatus) ? currentStatus : "";
+      setHtml(els.symbolFilter, `<option value="">All symbols</option>${symbols.map(symbol => `<option value="${escapeHtml(symbol)}">${escapeHtml(symbol)}</option>`).join("")}`);
+      setHtml(els.statusFilter, `<option value="">All statuses</option>${statuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join("")}`);
+      if (els.symbolFilter) els.symbolFilter.value = symbols.includes(currentSymbol) ? currentSymbol : "";
+      if (els.statusFilter) els.statusFilter.value = statuses.includes(currentStatus) ? currentStatus : "";
     }
 
     function filteredEvents() {
-      const q = els.search.value.trim().toLowerCase();
-      const symbol = els.symbolFilter.value;
-      const status = els.statusFilter.value;
-      const side = els.sideFilter.value;
+      const q = getValue(els.search).trim().toLowerCase();
+      const symbol = getValue(els.symbolFilter);
+      const status = getValue(els.statusFilter);
+      const side = getValue(els.sideFilter);
       return state.events.filter(row => {
         if (symbol && row.symbol !== symbol) return false;
         if (status && row.status !== status) return false;
@@ -717,15 +730,15 @@
       const success = all.filter(row => row.status === "success").length;
       const failed = all.filter(row => row.status === "failed").length;
       const active = state.brackets.filter(row => ["awaiting_entry", "protecting", "protected"].includes(row.status)).length;
-      els.totalSignals.textContent = all.length.toLocaleString();
-      els.latestSignal.textContent = all[0] ? `Latest ${formatTime(all[0].received_at)}` : "No database loaded";
-      els.successSignals.textContent = success.toLocaleString();
-      els.failedSignals.textContent = failed.toLocaleString();
-      els.activeBrackets.textContent = active.toLocaleString();
-      els.symbolCount.textContent = symbols.length.toLocaleString();
-      els.symbolList.textContent = symbols.slice(0, 5).join(", ") || "-";
-      els.eventCount.textContent = `${events.length.toLocaleString()} of ${all.length.toLocaleString()} rows`;
-      els.bracketCount.textContent = `${state.brackets.length.toLocaleString()} rows`;
+      setText(els.totalSignals, all.length.toLocaleString());
+      setText(els.latestSignal, all[0] ? `Latest ${formatTime(all[0].received_at)}` : "No database loaded");
+      setText(els.successSignals, success.toLocaleString());
+      setText(els.failedSignals, failed.toLocaleString());
+      setText(els.activeBrackets, active.toLocaleString());
+      setText(els.symbolCount, symbols.length.toLocaleString());
+      setText(els.symbolList, symbols.slice(0, 5).join(", ") || "-");
+      setText(els.eventCount, `${events.length.toLocaleString()} of ${all.length.toLocaleString()} rows`);
+      setText(els.bracketCount, `${state.brackets.length.toLocaleString()} rows`);
     }
 
     function badge(value, fallback = "") {
@@ -735,6 +748,7 @@
     }
 
     function renderEvents(events) {
+      if (!els.eventsBody) return;
       els.eventsBody.innerHTML = events.map(row => {
         const side = row.side || row.action || "";
         const mode = row.reduce_only ? "Reduce" : "Open";
@@ -763,6 +777,7 @@
     }
 
     function renderBrackets() {
+      if (!els.bracketsBody) return;
       els.bracketsBody.innerHTML = state.brackets.map(row => `
         <tr>
           <td>${escapeHtml(formatTime(row.updated_at))}</td>
@@ -778,9 +793,10 @@
     }
 
     function renderDetail() {
+      if (!els.detail) return;
       const row = state.events.find(item => item.id === state.selectedId);
       if (!row) {
-        els.selectedMeta.textContent = "No selection";
+        setText(els.selectedMeta, "No selection");
         els.detail.className = "detail-empty";
         els.detail.textContent = "Select a signal row.";
         return;
@@ -792,7 +808,7 @@
       const positionAfter = parseJson(row.position_after_json);
       const responses = parseJson(row.binance_responses_json);
 
-      els.selectedMeta.textContent = row.event_id;
+      setText(els.selectedMeta, row.event_id);
       els.detail.className = "detail";
       els.detail.innerHTML = `
         <dl class="kv">
@@ -876,10 +892,10 @@
     });
 
     els.clearFilters?.addEventListener("click", () => {
-      els.search.value = "";
-      els.symbolFilter.value = "";
-      els.statusFilter.value = "";
-      els.sideFilter.value = "";
+      if (els.search) els.search.value = "";
+      if (els.symbolFilter) els.symbolFilter.value = "";
+      if (els.statusFilter) els.statusFilter.value = "";
+      if (els.sideFilter) els.sideFilter.value = "";
       render();
     });
   </script>
