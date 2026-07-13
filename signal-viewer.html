@@ -657,13 +657,7 @@
         };
       });
 
-      state.brackets = tables.includes("brackets")
-        ? rowsFromQuery(state.db, `
-            SELECT *
-            FROM brackets
-            ORDER BY datetime(updated_at) DESC, id DESC
-          `)
-        : [];
+      state.brackets = [];
 
       state.selectedId = state.events[0]?.id ?? null;
       rebuildFilters();
