@@ -606,11 +606,11 @@
       addDiagnostic(`SQL.js initialized for ${label}`);
       state.db = new SQL.Database(new Uint8Array(bytes));
       addDiagnostic(`SQLite database opened (${bytes.byteLength} bytes)`);
-      els.reload.disabled = false;
-      els.subtitle.textContent = `Viewing ${label}`;
+      if (els.reload) els.reload.disabled = false;
+      if (els.subtitle) els.subtitle.textContent = `Viewing ${label}`;
       readDatabase();
       addDiagnostic(`Loaded ${state.events.length} events`);
-      els.notice.classList.remove("show");
+      if (els.notice) els.notice.classList.remove("show");
     }
 
     async function loadFile(file) {
@@ -848,7 +848,7 @@
     window.loadSignalViewerDb = tryAutoLoad;
     tryAutoLoad();
 
-    els.file.addEventListener("change", async event => {
+    els.file?.addEventListener("change", async event => {
       const file = event.target.files?.[0];
       if (!file) return;
       try {
@@ -858,7 +858,7 @@
       }
     });
 
-    els.reload.addEventListener("click", async () => {
+    els.reload?.addEventListener("click", async () => {
       try {
         if (state.file) {
           await loadFile(state.file);
@@ -870,12 +870,12 @@
       }
     });
 
-    [els.search, els.symbolFilter, els.statusFilter, els.sideFilter].forEach(el => {
+    [els.search, els.symbolFilter, els.statusFilter, els.sideFilter].filter(Boolean).forEach(el => {
       el.addEventListener("input", render);
       el.addEventListener("change", render);
     });
 
-    els.clearFilters.addEventListener("click", () => {
+    els.clearFilters?.addEventListener("click", () => {
       els.search.value = "";
       els.symbolFilter.value = "";
       els.statusFilter.value = "";
