@@ -489,8 +489,10 @@
       file: null,
       events: [],
       brackets: [],
-      selectedId: null
+      selectedId: null,
+      diagnostics: []
     };
+    window.signalViewerState = state;
 
     const els = {
       file: document.getElementById("dbFile"),
@@ -556,6 +558,19 @@
       }
     }
 
+    function setNotice(message, isError = false) {
+      els.notice.classList.add("show");
+      els.notice.style.borderColor = isError ? "#fecdca" : "#b2ddff";
+      els.notice.style.background = isError ? "#fef3f2" : "#eff8ff";
+      els.notice.style.color = isError ? "#912018" : "#175cd3";
+      els.notice.innerHTML = message;
+    }
+
+    function addDiagnostic(message) {
+      state.diagnostics.push(`${new Date().toISOString()} ${message}`);
+      console.info(`[signal-viewer] ${message}`);
+    }
+
     function rowsFromQuery(db, sql) {
       const stmt = db.prepare(sql);
       const rows = [];
@@ -588,10 +603,13 @@
 
     async function loadBytes(bytes, label) {
       const SQL = await ensureSql();
+      addDiagnostic(`SQL.js initialized for ${label}`);
       state.db = new SQL.Database(new Uint8Array(bytes));
+      addDiagnostic(`SQLite database opened (${bytes.byteLength} bytes)`);
       els.reload.disabled = false;
       els.subtitle.textContent = `Viewing ${label}`;
       readDatabase();
+      addDiagnostic(`Loaded ${state.events.length} events`);
       els.notice.classList.remove("show");
     }
 
@@ -622,6 +640,8 @@
         if (buffer.byteLength < 100) {
           throw new Error(`bridge-w2.db response is too small (${buffer.byteLength} bytes).`);
         }
+        setNotice(`Fetched <strong>bridge-w2.db</strong> (${buffer.byteLength.toLocaleString()} bytes). Opening SQLite...`);
+        addDiagnostic(`Fetched bridge-w2.db (${buffer.byteLength} bytes)`);
         state.file = null;
         await loadBytes(buffer, "bridge-w2.db");
       } catch (error) {
@@ -821,8 +841,8 @@
     }
 
     function showError(error) {
-      els.notice.classList.add("show");
-      els.notice.innerHTML = `<strong>Could not load database.</strong> ${escapeHtml(error.message || error)}`;
+      addDiagnostic(`ERROR: ${error.message || error}`);
+      setNotice(`<strong>Could not load database.</strong> ${escapeHtml(error.message || error)}`, true);
     }
 
     els.file.addEventListener("change", async event => {
