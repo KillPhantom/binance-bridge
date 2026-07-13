@@ -845,6 +845,9 @@
       setNotice(`<strong>Could not load database.</strong> ${escapeHtml(error.message || error)}`, true);
     }
 
+    window.loadSignalViewerDb = tryAutoLoad;
+    tryAutoLoad();
+
     els.file.addEventListener("change", async event => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -879,8 +882,6 @@
       els.sideFilter.value = "";
       render();
     });
-
-    tryAutoLoad();
   </script>
 </body>
 </html>
