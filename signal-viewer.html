@@ -567,6 +567,14 @@
       return rows;
     }
 
+    function tableColumns(db, table) {
+      return new Set(rowsFromQuery(db, `PRAGMA table_info(${table})`).map(row => row.name));
+    }
+
+    function selectColumn(columns, name, fallback = "NULL") {
+      return columns.has(name) ? name : `${fallback} AS ${name}`;
+    }
+
     async function ensureSql() {
       if (state.SQL) return state.SQL;
       if (typeof initSqlJs !== "function") {
@@ -601,8 +609,8 @@
         const buffer = await response.arrayBuffer();
         state.file = null;
         await loadBytes(buffer, "bridge-w2.db");
-      } catch {
-        // The picker remains available when the database is not served beside this file.
+      } catch (error) {
+        showError(error);
       }
     }
 
@@ -612,10 +620,24 @@
       if (!tables.includes("events")) {
         throw new Error("This database does not contain an events table.");
       }
+      const eventColumns = tableColumns(state.db, "events");
       state.events = rowsFromQuery(state.db, `
-        SELECT id, event_id, received_at, symbol, action, side, reduce_only,
-               price, amount, notional, payload_json, status, error,
-               position_before_json, position_after_json, binance_responses_json
+        SELECT ${selectColumn(eventColumns, "id")},
+               ${selectColumn(eventColumns, "event_id")},
+               ${selectColumn(eventColumns, "received_at")},
+               ${selectColumn(eventColumns, "symbol")},
+               ${selectColumn(eventColumns, "action", "NULL")},
+               ${selectColumn(eventColumns, "side", "action")},
+               ${selectColumn(eventColumns, "reduce_only", "NULL")},
+               ${selectColumn(eventColumns, "price", "NULL")},
+               ${selectColumn(eventColumns, "amount", "notional")},
+               ${selectColumn(eventColumns, "notional", "NULL")},
+               ${selectColumn(eventColumns, "payload_json")},
+               ${selectColumn(eventColumns, "status")},
+               ${selectColumn(eventColumns, "error", "NULL")},
+               ${selectColumn(eventColumns, "position_before_json", "NULL")},
+               ${selectColumn(eventColumns, "position_after_json", "NULL")},
+               ${selectColumn(eventColumns, "binance_responses_json", "NULL")}
         FROM events
         ORDER BY datetime(received_at) DESC, id DESC
       `).map(row => ({ ...row, payload: parseJson(row.payload_json) }));
