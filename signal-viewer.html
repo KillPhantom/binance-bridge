@@ -1,0 +1,871 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TradingView Signal Viewer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #eef2f6;
+      --text: #18202b;
+      --muted: #657181;
+      --line: #d8dee6;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --danger: #b42318;
+      --warn: #a15c07;
+      --ok: #027a48;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      background: #111827;
+      color: #f9fafb;
+      border-bottom: 1px solid #0b1220;
+    }
+
+    .wrap {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 18px 24px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 720;
+    }
+
+    .subtitle {
+      margin: 3px 0 0;
+      color: #cbd5e1;
+      font-size: 13px;
+    }
+
+    .loader {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    input,
+    select,
+    button {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+    }
+
+    input[type="file"] {
+      width: min(440px, 100%);
+      padding: 6px;
+      background: #f9fafb;
+      color: #111827;
+    }
+
+    input[type="search"],
+    select {
+      padding: 0 10px;
+    }
+
+    button {
+      padding: 0 12px;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 650;
+    }
+
+    button:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    main.wrap {
+      display: grid;
+      gap: 16px;
+      padding-top: 18px;
+      padding-bottom: 28px;
+    }
+
+    .notice {
+      display: none;
+      padding: 12px 14px;
+      border: 1px solid #fedf89;
+      background: #fffaeb;
+      color: #7a3d00;
+      border-radius: 8px;
+    }
+
+    .notice.show {
+      display: block;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      gap: 12px;
+    }
+
+    .stat,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .stat {
+      padding: 14px;
+      min-height: 86px;
+    }
+
+    .stat .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .stat .value {
+      margin-top: 6px;
+      font-size: 25px;
+      font-weight: 760;
+    }
+
+    .stat .hint {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, 190px)) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.9fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 720;
+      margin: 0;
+    }
+
+    .panel-meta {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 62vh;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 920px;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--panel-soft);
+      color: #354152;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    tr {
+      cursor: pointer;
+    }
+
+    tr:hover td,
+    tr.selected td {
+      background: #eef8f6;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+
+    .buy {
+      color: var(--ok);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .sell {
+      color: var(--danger);
+      background: #fef3f2;
+      border-color: #fecdca;
+    }
+
+    .success,
+    .protected,
+    .protecting {
+      color: var(--ok);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .failed,
+    .error {
+      color: var(--danger);
+      background: #fef3f2;
+      border-color: #fecdca;
+    }
+
+    .processing,
+    .awaiting_entry {
+      color: var(--warn);
+      background: #fffaeb;
+      border-color: #fedf89;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .detail {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .detail-empty {
+      min-height: 260px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 8px 12px;
+      align-items: start;
+    }
+
+    .kv dt {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .kv dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-weight: 560;
+    }
+
+    pre {
+      margin: 0;
+      max-height: 300px;
+      overflow: auto;
+      padding: 12px;
+      background: #0f172a;
+      color: #dbeafe;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .subgrid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .brackets table {
+      min-width: 720px;
+    }
+
+    @media (max-width: 1100px) {
+      .stats {
+        grid-template-columns: repeat(2, minmax(150px, 1fr));
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 700px) {
+      .wrap {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+
+      .topbar,
+      .filters,
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .loader {
+        justify-content: stretch;
+      }
+
+      input[type="file"],
+      button,
+      input,
+      select {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap topbar">
+      <div>
+        <h1>TradingView Signal Viewer</h1>
+        <p id="subtitle" class="subtitle">Open a bridge SQLite database and inspect received signals, execution status, and protective brackets.</p>
+      </div>
+      <div class="loader">
+        <input id="dbFile" type="file" accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3,application/octet-stream">
+        <button id="reloadBtn" type="button" disabled>Reload</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="notice" class="notice show">Choose <strong>bridge.db</strong> or an account database such as <strong>bridge-primary.db</strong>. Everything runs locally in your browser; the database is not uploaded.</div>
+
+    <section class="stats" aria-label="Signal summary">
+      <div class="stat">
+        <div class="label">Signals</div>
+        <div id="totalSignals" class="value">0</div>
+        <div id="latestSignal" class="hint">No database loaded</div>
+      </div>
+      <div class="stat">
+        <div class="label">Success</div>
+        <div id="successSignals" class="value">0</div>
+        <div class="hint">Accepted executions</div>
+      </div>
+      <div class="stat">
+        <div class="label">Failed</div>
+        <div id="failedSignals" class="value">0</div>
+        <div class="hint">Signals needing attention</div>
+      </div>
+      <div class="stat">
+        <div class="label">Open Brackets</div>
+        <div id="activeBrackets" class="value">0</div>
+        <div class="hint">Awaiting or protecting</div>
+      </div>
+      <div class="stat">
+        <div class="label">Symbols</div>
+        <div id="symbolCount" class="value">0</div>
+        <div id="symbolList" class="hint">-</div>
+      </div>
+    </section>
+
+    <section class="panel filters" aria-label="Filters">
+      <input id="searchInput" type="search" placeholder="Search event, symbol, strategy, error">
+      <select id="symbolFilter">
+        <option value="">All symbols</option>
+      </select>
+      <select id="statusFilter">
+        <option value="">All statuses</option>
+      </select>
+      <select id="sideFilter">
+        <option value="">All sides</option>
+        <option value="buy">Buy</option>
+        <option value="sell">Sell</option>
+      </select>
+      <button id="clearFilters" type="button">Clear</button>
+    </section>
+
+    <section class="grid">
+      <div class="subgrid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2 class="panel-title">Signals</h2>
+            <span id="eventCount" class="panel-meta">0 rows</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Received</th>
+                  <th>Symbol</th>
+                  <th>Side</th>
+                  <th>Mode</th>
+                  <th>Price</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Strategy</th>
+                  <th>Event ID</th>
+                </tr>
+              </thead>
+              <tbody id="eventsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel brackets">
+          <div class="panel-header">
+            <h2 class="panel-title">Brackets</h2>
+            <span id="bracketCount" class="panel-meta">0 rows</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Updated</th>
+                  <th>Symbol</th>
+                  <th>Entry Side</th>
+                  <th>Stop Loss</th>
+                  <th>Take Profit</th>
+                  <th>Status</th>
+                  <th>Entry Order</th>
+                  <th>Event ID</th>
+                </tr>
+              </thead>
+              <tbody id="bracketsBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Selected Signal</h2>
+          <span id="selectedMeta" class="panel-meta">No selection</span>
+        </div>
+        <div id="detail" class="detail-empty">Load a database, then select a signal row.</div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      SQL: null,
+      db: null,
+      file: null,
+      events: [],
+      brackets: [],
+      selectedId: null
+    };
+
+    const els = {
+      file: document.getElementById("dbFile"),
+      subtitle: document.getElementById("subtitle"),
+      reload: document.getElementById("reloadBtn"),
+      notice: document.getElementById("notice"),
+      totalSignals: document.getElementById("totalSignals"),
+      latestSignal: document.getElementById("latestSignal"),
+      successSignals: document.getElementById("successSignals"),
+      failedSignals: document.getElementById("failedSignals"),
+      activeBrackets: document.getElementById("activeBrackets"),
+      symbolCount: document.getElementById("symbolCount"),
+      symbolList: document.getElementById("symbolList"),
+      search: document.getElementById("searchInput"),
+      symbolFilter: document.getElementById("symbolFilter"),
+      statusFilter: document.getElementById("statusFilter"),
+      sideFilter: document.getElementById("sideFilter"),
+      clearFilters: document.getElementById("clearFilters"),
+      eventCount: document.getElementById("eventCount"),
+      bracketCount: document.getElementById("bracketCount"),
+      eventsBody: document.getElementById("eventsBody"),
+      bracketsBody: document.getElementById("bracketsBody"),
+      detail: document.getElementById("detail"),
+      selectedMeta: document.getElementById("selectedMeta")
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatTime(value) {
+      if (!value) return "-";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function formatNumber(value) {
+      if (value === null || value === undefined || value === "") return "-";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return value;
+      return number.toLocaleString(undefined, { maximumFractionDigits: 10 });
+    }
+
+    function parseJson(value) {
+      if (!value) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
+    }
+
+    function rowsFromQuery(db, sql) {
+      const stmt = db.prepare(sql);
+      const rows = [];
+      try {
+        while (stmt.step()) rows.push(stmt.getAsObject());
+      } finally {
+        stmt.free();
+      }
+      return rows;
+    }
+
+    async function ensureSql() {
+      if (state.SQL) return state.SQL;
+      if (typeof initSqlJs !== "function") {
+        throw new Error("SQL.js did not load. Check your internet connection or serve this page with a local copy of sql-wasm.js.");
+      }
+      state.SQL = await initSqlJs({
+        locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+      });
+      return state.SQL;
+    }
+
+    async function loadBytes(bytes, label) {
+      const SQL = await ensureSql();
+      state.db = new SQL.Database(new Uint8Array(bytes));
+      els.reload.disabled = false;
+      els.subtitle.textContent = `Viewing ${label}`;
+      readDatabase();
+      els.notice.classList.remove("show");
+    }
+
+    async function loadFile(file) {
+      const buffer = await file.arrayBuffer();
+      state.file = file;
+      await loadBytes(buffer, file.name);
+    }
+
+    async function tryAutoLoad() {
+      if (location.protocol === "file:") return;
+      try {
+        const response = await fetch("bridge.db", { cache: "no-store" });
+        if (!response.ok) return;
+        const buffer = await response.arrayBuffer();
+        state.file = null;
+        await loadBytes(buffer, "bridge.db");
+      } catch {
+        // The picker remains available when the database is not served beside this file.
+      }
+    }
+
+    function readDatabase() {
+      if (!state.db) return;
+      const tables = rowsFromQuery(state.db, "SELECT name FROM sqlite_master WHERE type='table'").map(row => row.name);
+      if (!tables.includes("events")) {
+        throw new Error("This database does not contain an events table.");
+      }
+      state.events = rowsFromQuery(state.db, `
+        SELECT id, event_id, received_at, symbol, action, side, reduce_only,
+               price, amount, notional, payload_json, status, error,
+               position_before_json, position_after_json, binance_responses_json
+        FROM events
+        ORDER BY datetime(received_at) DESC, id DESC
+      `).map(row => ({ ...row, payload: parseJson(row.payload_json) }));
+
+      state.brackets = tables.includes("brackets")
+        ? rowsFromQuery(state.db, `
+            SELECT id, event_id, symbol, entry_order_id, entry_side,
+                   stop_loss_price, take_profit_price, status, stop_algo_id,
+                   take_profit_algo_id, error, created_at, updated_at
+            FROM brackets
+            ORDER BY datetime(updated_at) DESC, id DESC
+          `)
+        : [];
+
+      state.selectedId = state.events[0]?.id ?? null;
+      rebuildFilters();
+      render();
+    }
+
+    function rebuildFilters() {
+      const currentSymbol = els.symbolFilter.value;
+      const currentStatus = els.statusFilter.value;
+      const symbols = [...new Set(state.events.map(row => row.symbol).filter(Boolean))].sort();
+      const statuses = [...new Set(state.events.map(row => row.status).filter(Boolean))].sort();
+      els.symbolFilter.innerHTML = `<option value="">All symbols</option>${symbols.map(symbol => `<option value="${escapeHtml(symbol)}">${escapeHtml(symbol)}</option>`).join("")}`;
+      els.statusFilter.innerHTML = `<option value="">All statuses</option>${statuses.map(status => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join("")}`;
+      els.symbolFilter.value = symbols.includes(currentSymbol) ? currentSymbol : "";
+      els.statusFilter.value = statuses.includes(currentStatus) ? currentStatus : "";
+    }
+
+    function filteredEvents() {
+      const q = els.search.value.trim().toLowerCase();
+      const symbol = els.symbolFilter.value;
+      const status = els.statusFilter.value;
+      const side = els.sideFilter.value;
+      return state.events.filter(row => {
+        if (symbol && row.symbol !== symbol) return false;
+        if (status && row.status !== status) return false;
+        if (side && (row.side || row.action) !== side) return false;
+        if (!q) return true;
+        const strategy = row.payload?.strategy ?? "";
+        const haystack = [row.event_id, row.symbol, row.status, row.error, strategy, row.payload_json].join(" ").toLowerCase();
+        return haystack.includes(q);
+      });
+    }
+
+    function renderStats(events) {
+      const all = state.events;
+      const symbols = [...new Set(all.map(row => row.symbol).filter(Boolean))].sort();
+      const success = all.filter(row => row.status === "success").length;
+      const failed = all.filter(row => row.status === "failed").length;
+      const active = state.brackets.filter(row => ["awaiting_entry", "protecting", "protected"].includes(row.status)).length;
+      els.totalSignals.textContent = all.length.toLocaleString();
+      els.latestSignal.textContent = all[0] ? `Latest ${formatTime(all[0].received_at)}` : "No database loaded";
+      els.successSignals.textContent = success.toLocaleString();
+      els.failedSignals.textContent = failed.toLocaleString();
+      els.activeBrackets.textContent = active.toLocaleString();
+      els.symbolCount.textContent = symbols.length.toLocaleString();
+      els.symbolList.textContent = symbols.slice(0, 5).join(", ") || "-";
+      els.eventCount.textContent = `${events.length.toLocaleString()} of ${all.length.toLocaleString()} rows`;
+      els.bracketCount.textContent = `${state.brackets.length.toLocaleString()} rows`;
+    }
+
+    function badge(value, fallback = "") {
+      const raw = String(value ?? fallback ?? "");
+      const cls = raw.toLowerCase().replaceAll(" ", "_");
+      return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(raw || "-")}</span>`;
+    }
+
+    function renderEvents(events) {
+      els.eventsBody.innerHTML = events.map(row => {
+        const side = row.side || row.action || "";
+        const mode = row.reduce_only ? "Reduce" : "Open";
+        const strategy = row.payload?.strategy ?? "-";
+        return `
+          <tr data-id="${row.id}" class="${row.id === state.selectedId ? "selected" : ""}">
+            <td>${escapeHtml(formatTime(row.received_at))}</td>
+            <td><strong>${escapeHtml(row.symbol)}</strong></td>
+            <td>${badge(side)}</td>
+            <td>${escapeHtml(mode)}</td>
+            <td>${escapeHtml(formatNumber(row.price))}</td>
+            <td>${escapeHtml(formatNumber(row.amount ?? row.notional))}</td>
+            <td>${badge(row.status)}</td>
+            <td>${escapeHtml(strategy)}</td>
+            <td class="muted">${escapeHtml(row.event_id)}</td>
+          </tr>
+        `;
+      }).join("") || `<tr><td colspan="9" class="muted">No signals match the current filters.</td></tr>`;
+
+      els.eventsBody.querySelectorAll("tr[data-id]").forEach(row => {
+        row.addEventListener("click", () => {
+          state.selectedId = Number(row.dataset.id);
+          render();
+        });
+      });
+    }
+
+    function renderBrackets() {
+      els.bracketsBody.innerHTML = state.brackets.map(row => `
+        <tr>
+          <td>${escapeHtml(formatTime(row.updated_at))}</td>
+          <td><strong>${escapeHtml(row.symbol)}</strong></td>
+          <td>${badge(row.entry_side)}</td>
+          <td>${escapeHtml(formatNumber(row.stop_loss_price))}</td>
+          <td>${escapeHtml(formatNumber(row.take_profit_price))}</td>
+          <td>${badge(row.status)}</td>
+          <td>${escapeHtml(row.entry_order_id)}</td>
+          <td class="muted">${escapeHtml(row.event_id)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="8" class="muted">No bracket rows found.</td></tr>`;
+    }
+
+    function renderDetail() {
+      const row = state.events.find(item => item.id === state.selectedId);
+      if (!row) {
+        els.selectedMeta.textContent = "No selection";
+        els.detail.className = "detail-empty";
+        els.detail.textContent = "Select a signal row.";
+        return;
+      }
+
+      const payload = row.payload ?? {};
+      const matchingBracket = state.brackets.find(bracket => bracket.event_id === row.event_id);
+      const positionBefore = parseJson(row.position_before_json);
+      const positionAfter = parseJson(row.position_after_json);
+      const responses = parseJson(row.binance_responses_json);
+
+      els.selectedMeta.textContent = row.event_id;
+      els.detail.className = "detail";
+      els.detail.innerHTML = `
+        <dl class="kv">
+          <dt>Received</dt><dd>${escapeHtml(formatTime(row.received_at))}</dd>
+          <dt>Event ID</dt><dd>${escapeHtml(row.event_id)}</dd>
+          <dt>Symbol</dt><dd>${escapeHtml(row.symbol)}</dd>
+          <dt>Side</dt><dd>${badge(row.side || row.action)}</dd>
+          <dt>Reduce Only</dt><dd>${row.reduce_only ? "true" : "false"}</dd>
+          <dt>Price</dt><dd>${escapeHtml(formatNumber(row.price))}</dd>
+          <dt>Amount</dt><dd>${escapeHtml(formatNumber(row.amount ?? row.notional))}</dd>
+          <dt>Status</dt><dd>${badge(row.status)}</dd>
+          <dt>Strategy</dt><dd>${escapeHtml(payload.strategy ?? "-")}</dd>
+          <dt>Source</dt><dd>${escapeHtml(payload.source ?? "-")}</dd>
+          <dt>Stop Loss</dt><dd>${escapeHtml(formatNumber(payload.stopLossPrice ?? matchingBracket?.stop_loss_price))}</dd>
+          <dt>Take Profit</dt><dd>${escapeHtml(formatNumber(payload.takeProfitPrice ?? matchingBracket?.take_profit_price))}</dd>
+          <dt>Error</dt><dd>${escapeHtml(row.error ?? "-")}</dd>
+        </dl>
+        <section>
+          <h3 class="panel-title">Payload</h3>
+          <pre>${escapeHtml(JSON.stringify(payload || row.payload_json, null, 2))}</pre>
+        </section>
+        <section>
+          <h3 class="panel-title">Position Before</h3>
+          <pre>${escapeHtml(JSON.stringify(positionBefore ?? "-", null, 2))}</pre>
+        </section>
+        <section>
+          <h3 class="panel-title">Position After</h3>
+          <pre>${escapeHtml(JSON.stringify(positionAfter ?? "-", null, 2))}</pre>
+        </section>
+        <section>
+          <h3 class="panel-title">Binance Responses</h3>
+          <pre>${escapeHtml(JSON.stringify(responses ?? "-", null, 2))}</pre>
+        </section>
+      `;
+    }
+
+    function render() {
+      const events = filteredEvents();
+      if (events.length && !events.some(row => row.id === state.selectedId)) {
+        state.selectedId = events[0].id;
+      }
+      renderStats(events);
+      renderEvents(events);
+      renderBrackets();
+      renderDetail();
+    }
+
+    function showError(error) {
+      els.notice.classList.add("show");
+      els.notice.innerHTML = `<strong>Could not load database.</strong> ${escapeHtml(error.message || error)}`;
+    }
+
+    els.file.addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        await loadFile(file);
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    els.reload.addEventListener("click", async () => {
+      try {
+        if (state.file) {
+          await loadFile(state.file);
+        } else {
+          await tryAutoLoad();
+        }
+      } catch (error) {
+        showError(error);
+      }
+    });
+
+    [els.search, els.symbolFilter, els.statusFilter, els.sideFilter].forEach(el => {
+      el.addEventListener("input", render);
+      el.addEventListener("change", render);
+    });
+
+    els.clearFilters.addEventListener("click", () => {
+      els.search.value = "";
+      els.symbolFilter.value = "";
+      els.statusFilter.value = "";
+      els.sideFilter.value = "";
+      render();
+    });
+
+    tryAutoLoad();
+  </script>
+</body>
+</html>
