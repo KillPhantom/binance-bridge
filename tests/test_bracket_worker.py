@@ -174,11 +174,11 @@ async def test_run_prioritizes_entry_and_throttles_protected_reconciliation(tmp_
 
 
 @pytest.mark.asyncio
-async def test_unfilled_entry_is_not_canceled_before_thirty_minute_timeout(tmp_path):
+async def test_unfilled_entry_is_not_canceled_before_one_minute_timeout(tmp_path):
     store = EventStore(tmp_path / "events.db")
     bracket = create_bracket(store)
     bracket["created_at"] = (
-        datetime.now(timezone.utc) - timedelta(minutes=15)
+        datetime.now(timezone.utc) - timedelta(seconds=30)
     ).isoformat()
     client = AsyncMock()
     client.query_order.return_value = {
@@ -195,11 +195,11 @@ async def test_unfilled_entry_is_not_canceled_before_thirty_minute_timeout(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_unfilled_entry_is_canceled_after_thirty_minute_timeout(tmp_path):
+async def test_unfilled_entry_is_canceled_after_one_minute_timeout(tmp_path):
     store = EventStore(tmp_path / "events.db")
     bracket = create_bracket(store)
     bracket["created_at"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=1801)
+        datetime.now(timezone.utc) - timedelta(seconds=61)
     ).isoformat()
     client = AsyncMock()
     client.query_order.side_effect = [
@@ -219,7 +219,7 @@ async def test_timeout_race_fill_is_protected(tmp_path):
     store = EventStore(tmp_path / "events.db")
     bracket = create_bracket(store)
     bracket["created_at"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=1801)
+        datetime.now(timezone.utc) - timedelta(seconds=61)
     ).isoformat()
     client = AsyncMock()
     client.query_order.side_effect = [

@@ -400,15 +400,11 @@
         <h1>TradingView Signal Viewer</h1>
         <p id="subtitle" class="subtitle">Open a bridge SQLite database and inspect received signals, execution status, and protective brackets.</p>
       </div>
-      <div class="loader">
-        <input id="dbFile" type="file" accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3,application/octet-stream">
-        <button id="reloadBtn" type="button" disabled>Reload</button>
-      </div>
     </div>
   </header>
 
   <main class="wrap">
-    <div id="notice" class="notice show">Choose <strong>bridge.db</strong> or an account database such as <strong>bridge-primary.db</strong>. Everything runs locally in your browser; the database is not uploaded.</div>
+    <div id="notice" class="notice show">Choose <strong>bridge-w2.db</strong> or an account database such as <strong>bridge-primary.db</strong>. Everything runs locally in your browser; the database is not uploaded.</div>
 
     <section class="stats" aria-label="Signal summary">
       <div class="stat">
@@ -481,38 +477,8 @@
           </div>
         </section>
 
-        <section class="panel brackets">
-          <div class="panel-header">
-            <h2 class="panel-title">Brackets</h2>
-            <span id="bracketCount" class="panel-meta">0 rows</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Updated</th>
-                  <th>Symbol</th>
-                  <th>Entry Side</th>
-                  <th>Stop Loss</th>
-                  <th>Take Profit</th>
-                  <th>Status</th>
-                  <th>Entry Order</th>
-                  <th>Event ID</th>
-                </tr>
-              </thead>
-              <tbody id="bracketsBody"></tbody>
-            </table>
-          </div>
-        </section>
       </div>
 
-      <section class="panel">
-        <div class="panel-header">
-          <h2 class="panel-title">Selected Signal</h2>
-          <span id="selectedMeta" class="panel-meta">No selection</span>
-        </div>
-        <div id="detail" class="detail-empty">Load a database, then select a signal row.</div>
-      </section>
     </section>
   </main>
 
@@ -630,11 +596,11 @@
     async function tryAutoLoad() {
       if (location.protocol === "file:") return;
       try {
-        const response = await fetch("bridge.db", { cache: "no-store" });
+        const response = await fetch("bridge-w2.db", { cache: "no-store" });
         if (!response.ok) return;
         const buffer = await response.arrayBuffer();
         state.file = null;
-        await loadBytes(buffer, "bridge.db");
+        await loadBytes(buffer, "bridge-w2.db");
       } catch {
         // The picker remains available when the database is not served beside this file.
       }
