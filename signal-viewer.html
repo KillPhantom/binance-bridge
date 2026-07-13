@@ -603,10 +603,25 @@
 
     async function tryAutoLoad() {
       if (location.protocol === "file:") return;
+      const candidates = [
+        new URL("bridge-w2.db", location.href).href,
+        `${location.origin}/signals/bridge-w2.db`
+      ];
       try {
-        const response = await fetch("bridge-w2.db", { cache: "no-store" });
-        if (!response.ok) return;
+        let response = null;
+        let lastStatus = "";
+        for (const url of [...new Set(candidates)]) {
+          response = await fetch(url, { cache: "no-store" });
+          if (response.ok) break;
+          lastStatus = `${response.status} ${response.statusText} from ${url}`;
+        }
+        if (!response || !response.ok) {
+          throw new Error(`Could not fetch bridge-w2.db (${lastStatus || "no response"}).`);
+        }
         const buffer = await response.arrayBuffer();
+        if (buffer.byteLength < 100) {
+          throw new Error(`bridge-w2.db response is too small (${buffer.byteLength} bytes).`);
+        }
         state.file = null;
         await loadBytes(buffer, "bridge-w2.db");
       } catch (error) {
