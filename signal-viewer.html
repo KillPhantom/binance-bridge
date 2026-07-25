@@ -216,7 +216,7 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      min-width: 920px;
+      min-width: 1120px;
     }
 
     th,
@@ -466,6 +466,8 @@
                   <th>Side</th>
                   <th>Mode</th>
                   <th>Price</th>
+                  <th>Profit Price</th>
+                  <th>Stop Loss Price</th>
                   <th>Amount</th>
                   <th>Status</th>
                   <th>Strategy</th>
@@ -680,6 +682,8 @@
           side: row.side ?? row.action ?? payload.side ?? null,
           reduce_only: row.reduce_only ?? payload.reduceOnly ?? null,
           price: row.price ?? payload.price ?? null,
+          take_profit_price: row.take_profit_price ?? payload.takeProfitPrice ?? payload.take_profit_price ?? null,
+          stop_loss_price: row.stop_loss_price ?? payload.stopLossPrice ?? payload.stop_loss_price ?? null,
           amount: row.amount ?? row.notional ?? payload.amount ?? null,
           notional: row.notional ?? row.amount ?? payload.amount ?? null,
           error: row.error ?? null,
@@ -760,13 +764,15 @@
             <td>${badge(side)}</td>
             <td>${escapeHtml(mode)}</td>
             <td>${escapeHtml(formatNumber(row.price))}</td>
+            <td>${escapeHtml(formatNumber(row.take_profit_price))}</td>
+            <td>${escapeHtml(formatNumber(row.stop_loss_price))}</td>
             <td>${escapeHtml(formatNumber(row.amount ?? row.notional))}</td>
             <td>${badge(row.status)}</td>
             <td>${escapeHtml(strategy)}</td>
             <td class="muted">${escapeHtml(row.event_id)}</td>
           </tr>
         `;
-      }).join("") || `<tr><td colspan="9" class="muted">No signals match the current filters.</td></tr>`;
+      }).join("") || `<tr><td colspan="11" class="muted">No signals match the current filters.</td></tr>`;
 
       els.eventsBody.querySelectorAll("tr[data-id]").forEach(row => {
         row.addEventListener("click", () => {
