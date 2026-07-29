@@ -149,6 +149,42 @@
       font-size: 10px;
     }
 
+    .balance-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .balance-item {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #121923;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .balance-item strong {
+      overflow: hidden;
+      color: #e8edf3;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .balance-item small {
+      margin-left: 3px;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 600;
+    }
+
     main { padding: 14px 14px 0; }
 
     .notice {
@@ -636,6 +672,16 @@
           <div id="markPrice" class="price">--</div>
         </div>
       </div>
+      <div class="balance-strip" aria-label="账户余额">
+        <div class="balance-item">
+          <span>账户余额</span>
+          <strong><span id="walletBalance">--</span><small>USDT</small></strong>
+        </div>
+        <div class="balance-item">
+          <span>可用余额</span>
+          <strong><span id="availableBalance">--</span><small>USDT</small></strong>
+        </div>
+      </div>
     </header>
 
     <main>
@@ -815,6 +861,8 @@
       accountName: $("accountName"),
       updatedAt: $("updatedAt"),
       markPrice: $("markPrice"),
+      walletBalance: $("walletBalance"),
+      availableBalance: $("availableBalance"),
       notice: $("notice"),
       orderTypeToggle: $("orderTypeToggle"),
       unitToggle: $("unitToggle"),
@@ -955,6 +1003,8 @@
       sessionStorage.removeItem(TOKEN_KEY);
       els.tokenInput.value = "";
       els.accountName.textContent = "未登录";
+      els.walletBalance.textContent = "--";
+      els.availableBalance.textContent = "--";
       els.loginOverlay.classList.remove("hidden");
     }
 
@@ -994,6 +1044,14 @@
         els.markPrice.classList.add(price > state.lastPrice ? "up" : "down");
       }
       state.lastPrice = price;
+      els.walletBalance.textContent = formatNumber(
+        snapshot.balance?.walletBalance,
+        4
+      );
+      els.availableBalance.textContent = formatNumber(
+        snapshot.balance?.availableBalance,
+        4
+      );
       const updated = new Date(snapshot.updatedAt);
       els.updatedAt.textContent = `更新 ${updated.toLocaleTimeString("zh-CN", { hour12: false })}`;
       renderPosition(snapshot.position, snapshot.protection);

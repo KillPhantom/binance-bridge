@@ -127,11 +127,12 @@ class ManualTradingService:
         return response
 
     async def state(self) -> dict[str, Any]:
-        mark_price, position, open_orders, open_algos = await asyncio.gather(
+        mark_price, position, open_orders, open_algos, balance = await asyncio.gather(
             self.client.get_mark_price(self.symbol),
             self.client.get_position(self.symbol),
             self.client.get_open_orders(self.symbol),
             self._safe_open_algos(),
+            self.client.get_asset_balance("USDT"),
         )
         recorded = {
             int(order["order_id"]): order
@@ -211,6 +212,15 @@ class ManualTradingService:
             "account": self.runtime.name,
             "symbol": self.symbol,
             "markPrice": decimal_string(mark_price),
+            "balance": {
+                "asset": "USDT",
+                "walletBalance": decimal_string(
+                    Decimal(str(balance.get("balance") or "0"))
+                ),
+                "availableBalance": decimal_string(
+                    Decimal(str(balance.get("availableBalance") or "0"))
+                ),
+            },
             "updatedAt": datetime.now(timezone.utc).isoformat(),
             "position": {
                 "side": position.side,

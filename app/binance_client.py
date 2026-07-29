@@ -127,6 +127,35 @@ class BinanceClient:
         self._raise_for_error(response)
         return Decimal(response.json()["markPrice"])
 
+    async def get_asset_balance(self, asset: str) -> dict[str, Any]:
+        normalized_asset = asset.upper()
+        if self.dry_run:
+            return {
+                "asset": normalized_asset,
+                "balance": "0",
+                "availableBalance": "0",
+            }
+        rows = await self.signed_request("GET", "/fapi/v3/balance")
+        if not isinstance(rows, list) or not all(
+            isinstance(item, dict) for item in rows
+        ):
+            raise BinanceAPIError(200, "unexpected balance response format")
+        row = next(
+            (
+                item
+                for item in rows
+                if str(item.get("asset") or "").upper() == normalized_asset
+            ),
+            None,
+        )
+        if row is None:
+            return {
+                "asset": normalized_asset,
+                "balance": "0",
+                "availableBalance": "0",
+            }
+        return row
+
     async def get_exchange_info(self) -> dict[str, Any]:
         if self.dry_run:
             return {"symbols": [{"symbol": symbol, "filters": [

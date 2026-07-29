@@ -18,6 +18,11 @@ def make_binance():
     client.dry_run = False
     client.close.return_value = None
     client.get_mark_price.return_value = Decimal("2000")
+    client.get_asset_balance.return_value = {
+        "asset": "USDT",
+        "balance": "123.45000000",
+        "availableBalance": "98.76000000",
+    }
     client.get_position.return_value = Position(
         symbol="ETHUSDT",
         amount=Decimal("0"),
@@ -115,6 +120,9 @@ def test_trade_page_and_static_token_auth(tmp_path):
 
     assert page.status_code == 200
     assert "ETHUSDT 手动交易" in page.text
+    assert "账户余额" in page.text
+    assert 'id="walletBalance"' in page.text
+    assert 'id="availableBalance"' in page.text
     assert page.headers["cache-control"] == "no-store"
     assert missing.status_code == 401
     assert wrong.status_code == 401
@@ -152,8 +160,15 @@ def test_token_is_bound_to_one_account(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["account"] == "w2"
+    assert response.json()["balance"] == {
+        "asset": "USDT",
+        "walletBalance": "123.45000000",
+        "availableBalance": "98.76000000",
+    }
     w2.get_position.assert_awaited_once_with("ETHUSDT")
+    w2.get_asset_balance.assert_awaited_once_with("USDT")
     primary.get_position.assert_not_awaited()
+    primary.get_asset_balance.assert_not_awaited()
 
 
 def test_duplicate_manual_order_is_idempotent_and_usdt_is_converted(tmp_path):

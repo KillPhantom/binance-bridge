@@ -40,6 +40,54 @@ async def test_signed_request_uses_hmac_sha256(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_asset_balance_uses_v3_endpoint_and_selects_asset():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(
+        return_value=[
+            {
+                "asset": "USDC",
+                "balance": "20",
+                "availableBalance": "18",
+            },
+            {
+                "asset": "USDT",
+                "balance": "123.45",
+                "availableBalance": "98.76",
+            },
+        ]
+    )
+
+    result = await client.get_asset_balance("usdt")
+
+    assert result["asset"] == "USDT"
+    assert result["balance"] == "123.45"
+    assert result["availableBalance"] == "98.76"
+    client.signed_request.assert_awaited_once_with("GET", "/fapi/v3/balance")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_get_asset_balance_returns_zero_when_asset_is_absent():
+    settings = Settings(
+        binance_api_key="key", binance_api_secret="secret", dry_run=False
+    )
+    client = BinanceClient(settings)
+    client.signed_request = AsyncMock(return_value=[])
+
+    result = await client.get_asset_balance("USDT")
+
+    assert result == {
+        "asset": "USDT",
+        "balance": "0",
+        "availableBalance": "0",
+    }
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_cancel_opening_orders_preserves_close_and_opposite_orders():
     settings = Settings(
         binance_api_key="key", binance_api_secret="secret", dry_run=False
