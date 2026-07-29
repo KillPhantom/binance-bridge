@@ -13,8 +13,8 @@ rsync -avz --delete \
   --exclude '.venv/' \
   --exclude '__pycache__/' \
   --exclude '.pytest_cache/' \
-  --exclude 'bridge.db' \
-  --exclude 'bridge.db-shm' \
-  --exclude 'bridge.db-wal' \
+  --exclude 'bridge*.db' \
+  --exclude 'bridge*.db-shm' \
+  --exclude 'bridge*.db-wal' \
   --exclude '.git/' \
   ./ "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/"
