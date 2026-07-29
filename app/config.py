@@ -46,6 +46,7 @@ class BinanceAccount(BaseModel):
     name: str = Field(min_length=1)
     api_key: str = ""
     api_secret: str = ""
+    manual_token: str = ""
     allowed_symbols: frozenset[str] | None = None
     amount_multiplier: Decimal = Field(default=Decimal("1"), gt=0)
 
@@ -57,11 +58,20 @@ class BinanceAccount(BaseModel):
             raise ValueError("account name is required")
         return normalized
 
+    @field_validator("manual_token")
+    @classmethod
+    def validate_manual_token(cls, value: str) -> str:
+        token = value.strip()
+        if token and len(token) < 32:
+            raise ValueError("manual trading token must be at least 32 characters")
+        return token
+
 
 class Settings(BaseModel):
     webhook_secret: str = Field(default="change_me")
     binance_api_key: str = ""
     binance_api_secret: str = ""
+    binance_manual_token: str = ""
     binance_accounts: tuple[BinanceAccount, ...] = ()
     binance_base_url: str = "https://fapi.binance.com"
     allowed_symbols: frozenset[str] = frozenset({"BTCUSDT", "ETHUSDT"})
@@ -92,6 +102,7 @@ class Settings(BaseModel):
                 name="default",
                 api_key=self.binance_api_key,
                 api_secret=self.binance_api_secret,
+                manual_token=self.binance_manual_token,
             ),
         )
 
@@ -100,6 +111,7 @@ class Settings(BaseModel):
             update={
                 "binance_api_key": account.api_key,
                 "binance_api_secret": account.api_secret,
+                "binance_manual_token": account.manual_token,
                 "allowed_symbols": account.allowed_symbols or self.allowed_symbols,
             }
         )
@@ -115,6 +127,9 @@ class Settings(BaseModel):
                 api_key=os.getenv(f"BINANCE_{_account_env_prefix(name)}_API_KEY", ""),
                 api_secret=os.getenv(
                     f"BINANCE_{_account_env_prefix(name)}_API_SECRET", ""
+                ),
+                manual_token=os.getenv(
+                    f"BINANCE_{_account_env_prefix(name)}_MANUAL_TOKEN", ""
                 ),
                 allowed_symbols=(
                     _parse_symbols(symbols)
@@ -135,6 +150,7 @@ class Settings(BaseModel):
             webhook_secret=os.getenv("WEBHOOK_SECRET", "change_me"),
             binance_api_key=os.getenv("BINANCE_API_KEY", ""),
             binance_api_secret=os.getenv("BINANCE_API_SECRET", ""),
+            binance_manual_token=os.getenv("BINANCE_MANUAL_TOKEN", ""),
             binance_accounts=accounts,
             binance_base_url=os.getenv("BINANCE_BASE_URL", "https://fapi.binance.com"),
             allowed_symbols=os.getenv("ALLOWED_SYMBOLS", "BTCUSDT,ETHUSDT"),

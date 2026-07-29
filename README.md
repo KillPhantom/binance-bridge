@@ -130,6 +130,49 @@ creates `bridge-primary.db` and `bridge-copy-trader.db`.
 
 For testnet, set the current Binance USDⓈ-M Futures testnet REST base URL in `BINANCE_BASE_URL`, add testnet credentials, and only then set `DRY_RUN=false`. Confirm the account is in One-way Mode before sending signals. The bridge rejects a returned position whose `positionSide` is not `BOTH`.
 
+## Mobile manual ETHUSDT trading
+
+The service includes a mobile-first manual futures page at `/trade`. It trades
+only `ETHUSDT`, uses Mark Price for its display and conditional protection, and
+never sends Binance credentials to the browser.
+
+For a single account, configure a random token of at least 32 characters:
+
+```dotenv
+ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_MANUAL_TOKEN=replace_with_at_least_32_random_characters
+```
+
+For named accounts, configure one unique token per account. A token is bound
+server-side to exactly one account runtime:
+
+```dotenv
+BINANCE_ACCOUNT_NAMES=w2,copy1
+BINANCE_W2_API_KEY=...
+BINANCE_W2_API_SECRET=...
+BINANCE_W2_ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_W2_MANUAL_TOKEN=replace_with_w2_random_token_32_chars
+BINANCE_COPY1_API_KEY=...
+BINANCE_COPY1_API_SECRET=...
+BINANCE_COPY1_ALLOWED_SYMBOLS=ETHUSDT
+BINANCE_COPY1_MANUAL_TOKEN=replace_with_copy1_random_token_32_chars
+```
+
+Open `https://YOUR_DOMAIN/trade` and enter the matching token. The browser keeps
+it in `sessionStorage` and sends it as a Bearer token; it is cleared when the
+browser session ends or the user signs out.
+
+The page supports market and GTC limit entries, USDT or ETH sizing, leverage,
+optional independent stop-loss/take-profit orders, pending-order cancellation,
+full-position reduce-only market close, and protection replacement. Manual
+actions use unique request IDs and are persisted for idempotency and audit
+without storing the token.
+
+**Never expose `/trade` or `/api/manual/` over plain HTTP in production.** Install
+TLS first, use a long random token, restrict the Binance key to futures trading
+without withdrawals, and apply an IP allowlist where practical. The supplied
+Nginx example exposes the page and API with rate limiting and security headers.
+
 Before production:
 
 1. Verify every symbol in `ALLOWED_SYMBOLS` exists on USDⓈ-M Futures.

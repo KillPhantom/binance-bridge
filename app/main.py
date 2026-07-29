@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from .binance_client import BinanceClient
@@ -18,6 +19,15 @@ from .bracket_worker import BracketWorker
 from .config import BinanceAccount, Settings, get_settings
 from .db import EventStore
 from .logger import configure_logging
+from .manual_trading import (
+    MANUAL_SYMBOL,
+    ManualCancelRequest,
+    ManualCloseRequest,
+    ManualOrderRequest,
+    ManualProtectionRequest,
+    ManualTradingError,
+    ManualTradingService,
+)
 from .models import TradingViewSignal
 from .risk_engine import RiskEngine
 
@@ -125,6 +135,18 @@ def create_app(
                     "when DRY_RUN=false"
                 )
     runtimes = _build_account_runtimes(settings, store, client, clients)
+    manual_tokens = [
+        runtime.settings.binance_manual_token
+        for runtime in runtimes
+        if runtime.settings.binance_manual_token
+    ]
+    if len(manual_tokens) != len(set(manual_tokens)):
+        raise RuntimeError("manual trading tokens must be unique across accounts")
+    manual_services = {
+        runtime.name: ManualTradingService(runtime)
+        for runtime in runtimes
+        if runtime.settings.binance_manual_token
+    }
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -147,10 +169,96 @@ def create_app(
     app.state.binance = runtimes[0].client
     app.state.risk_engine = runtimes[0].engine
     app.state.bracket_worker = runtimes[0].bracket_worker
+    app.state.manual_services = manual_services
 
     @app.get("/health")
     async def health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/trade", include_in_schema=False)
+    async def manual_trade_page() -> FileResponse:
+        page = Path(__file__).resolve().parent.parent / "manual-trader.html"
+        return FileResponse(
+            page,
+            media_type="text/html",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    def authenticated_manual_service(request: Request) -> ManualTradingService:
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(status_code=401, detail="missing bearer token")
+        matched: ManualTradingService | None = None
+        for runtime in runtimes:
+            configured = runtime.settings.binance_manual_token
+            if configured and hmac.compare_digest(token, configured):
+                matched = manual_services[runtime.name]
+        if matched is None:
+            raise HTTPException(status_code=401, detail="invalid bearer token")
+        if MANUAL_SYMBOL not in matched.runtime.settings.allowed_symbols:
+            raise HTTPException(
+                status_code=403,
+                detail=f"{MANUAL_SYMBOL} is not allowed for this account",
+            )
+        return matched
+
+    async def manual_api_call(operation):
+        try:
+            return await operation
+        except ManualTradingError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("manual trading operation failed")
+            raise HTTPException(
+                status_code=502, detail=f"manual trading failed: {exc}"
+            ) from exc
+
+    async def manual_payload(request: Request, model_type):
+        try:
+            return model_type.model_validate(await request.json())
+        except (ValueError, ValidationError) as exc:
+            raise HTTPException(status_code=422, detail="invalid request payload") from exc
+
+    @app.post("/api/manual/auth")
+    async def manual_auth(request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        return {
+            "ok": True,
+            "account": service.runtime.name,
+            "symbol": MANUAL_SYMBOL,
+        }
+
+    @app.get("/api/manual/state")
+    async def manual_state(request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        return await manual_api_call(service.state())
+
+    @app.post("/api/manual/orders")
+    async def manual_open_order(request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        payload = await manual_payload(request, ManualOrderRequest)
+        return await manual_api_call(service.open_order(payload))
+
+    @app.delete("/api/manual/orders/{order_id}")
+    async def manual_cancel_order(order_id: int, request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        payload = await manual_payload(request, ManualCancelRequest)
+        return await manual_api_call(service.cancel_order(order_id, payload))
+
+    @app.post("/api/manual/positions/ETHUSDT/close")
+    async def manual_close_position(request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        payload = await manual_payload(request, ManualCloseRequest)
+        return await manual_api_call(service.close_position(payload))
+
+    @app.put("/api/manual/positions/ETHUSDT/protection")
+    async def manual_update_protection(request: Request) -> dict[str, Any]:
+        service = authenticated_manual_service(request)
+        payload = await manual_payload(request, ManualProtectionRequest)
+        return await manual_api_call(service.update_protection(payload))
 
     async def execute_for_account(
         runtime: AccountRuntime, signal: TradingViewSignal, payload: dict[str, Any]
@@ -237,6 +345,8 @@ def create_app(
                         account_signal.side.upper(),
                         str(stop_loss_price),
                         str(take_profit_price),
+                        working_type=runtime.settings.algo_working_type,
+                        entry_timeout_seconds=runtime.settings.entry_order_timeout_seconds,
                     )
 
             result = await runtime.engine.handle_signal(account_signal, finalize_execution)

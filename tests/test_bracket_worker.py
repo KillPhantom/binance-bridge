@@ -135,6 +135,39 @@ async def test_flat_position_cancels_remaining_sibling_algo(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_manual_protection_exit_cancels_partially_filled_gtc_remainder(tmp_path):
+    store = EventStore(tmp_path / "events.db")
+    bracket = store.create_manual_bracket(
+        event_id="manual-limit-1",
+        symbol="ETHUSDT",
+        entry_order_id=501,
+        entry_client_order_id="mt-limit-1",
+        entry_side="BUY",
+        stop_loss_price="1900",
+        take_profit_price="2200",
+        status="protected",
+        stop_algo_id=601,
+        take_profit_algo_id=602,
+    )
+    client = AsyncMock()
+    client.get_position.return_value = Position(symbol="ETHUSDT", amount="0")
+    client.query_order.return_value = {
+        "orderId": 501,
+        "status": "PARTIALLY_FILLED",
+        "executedQty": "0.1",
+    }
+    client.cancel_order.return_value = {"status": "CANCELED"}
+    client.cancel_all_algo_open_orders.return_value = {"code": 200}
+    worker = BracketWorker(client, store, Settings())
+
+    await worker._process(bracket)
+
+    client.cancel_order.assert_awaited_once_with("ETHUSDT", 501)
+    client.cancel_all_algo_open_orders.assert_awaited_once_with("ETHUSDT")
+    assert store.get_bracket(bracket["id"])["status"] == "closed"
+
+
+@pytest.mark.asyncio
 async def test_run_prioritizes_entry_and_throttles_protected_reconciliation(tmp_path):
     store = EventStore(tmp_path / "events.db")
     protected = create_bracket(

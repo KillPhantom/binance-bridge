@@ -1,0 +1,1298 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#181f2b">
+  <title>ETHUSDT 手动交易</title>
+  <style>
+    :root {
+      --bg: #111722;
+      --panel: #181f2b;
+      --field: #232c3a;
+      --field-2: #2a3444;
+      --line: #2e3949;
+      --text: #f1f4f8;
+      --muted: #8d98aa;
+      --green: #24c99a;
+      --green-dark: #124c40;
+      --red: #f6465d;
+      --red-dark: #56232e;
+      --gold: #f0b90b;
+      --blue: #4c8dff;
+      --shadow: 0 18px 55px rgb(0 0 0 / 38%);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      min-height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input { font: inherit; }
+
+    button {
+      border: 0;
+      color: inherit;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:disabled { cursor: wait; opacity: .55; }
+
+    .app {
+      width: min(100%, 520px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--panel);
+      padding-bottom: calc(28px + env(safe-area-inset-bottom));
+      box-shadow: 0 0 0 1px rgb(255 255 255 / 3%);
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      padding: calc(10px + env(safe-area-inset-top)) 16px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgb(24 31 43 / 94%);
+      backdrop-filter: blur(14px);
+    }
+
+    .topline, .symbol-row, .price-row, .section-title,
+    .field-head, .order-actions, .position-line, .pending-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .brand {
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .account {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .account::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 3px rgb(36 201 154 / 12%);
+      content: "";
+    }
+
+    .logout {
+      padding: 4px 0 4px 8px;
+      background: transparent;
+      color: #bdc5d1;
+      font-size: 12px;
+    }
+
+    .symbol-row { margin-top: 13px; }
+
+    .symbol {
+      font-size: 19px;
+      font-weight: 760;
+      letter-spacing: -.02em;
+    }
+
+    .perp {
+      margin-left: 6px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: var(--field);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      vertical-align: 2px;
+    }
+
+    .price-block { text-align: right; }
+
+    .price-label {
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .price {
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+      font-size: 21px;
+      font-weight: 760;
+    }
+
+    .price.up { color: var(--green); }
+    .price.down { color: var(--red); }
+
+    .stale {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    main { padding: 14px 14px 0; }
+
+    .notice {
+      display: none;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid #5a4520;
+      border-radius: 9px;
+      background: #302815;
+      color: #f8d66d;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .notice.show { display: block; }
+    .notice.error { border-color: #6c2d38; background: #351d25; color: #ff9eab; }
+    .notice.success { border-color: #21624f; background: #153a31; color: #8be4c8; }
+
+    .card {
+      overflow: hidden;
+      margin-bottom: 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #1b2330;
+    }
+
+    .card-body { padding: 14px; }
+
+    .section-title {
+      margin-bottom: 12px;
+      color: #dbe1e9;
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .section-title span:last-child {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      padding: 3px;
+      border-radius: 9px;
+      background: #121923;
+    }
+
+    .segmented button {
+      min-height: 36px;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 680;
+    }
+
+    .segmented button.active {
+      background: var(--field-2);
+      color: var(--text);
+      box-shadow: 0 2px 8px rgb(0 0 0 / 22%);
+    }
+
+    .control { margin-top: 13px; }
+
+    .field-head {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .field-head strong {
+      color: #cbd3de;
+      font-weight: 650;
+    }
+
+    .input-shell {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      min-height: 48px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: var(--field);
+      transition: border-color .16s;
+    }
+
+    .input-shell:focus-within { border-color: #56647a; }
+
+    .input-shell input {
+      width: 100%;
+      min-width: 0;
+      padding: 12px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .input-shell input::placeholder { color: #687589; }
+
+    .suffix {
+      padding: 0 12px;
+      color: #cbd3dd;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .unit-toggle {
+      display: flex;
+      padding: 3px;
+      border-radius: 7px;
+      background: #151c27;
+    }
+
+    .unit-toggle button {
+      min-width: 52px;
+      padding: 7px 8px;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 720;
+    }
+
+    .unit-toggle button.active { background: var(--field-2); color: var(--text); }
+
+    .leverage-grid {
+      display: grid;
+      grid-template-columns: 1fr 84px;
+      gap: 9px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold);
+    }
+
+    .range-wrap {
+      display: flex;
+      min-height: 48px;
+      align-items: center;
+      padding: 0 12px;
+      border-radius: 9px;
+      background: var(--field);
+    }
+
+    .protection {
+      margin-top: 13px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+
+    .protect-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      margin-top: 10px;
+    }
+
+    .protect-row:first-child { margin-top: 0; }
+
+    .protect-check {
+      width: 19px;
+      height: 19px;
+      margin-top: 14px;
+      accent-color: var(--gold);
+    }
+
+    .protect-row.disabled { opacity: .52; }
+
+    .mark-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .order-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin-top: 15px;
+    }
+
+    .trade-button, .primary-button, .danger-button {
+      min-height: 50px;
+      border-radius: 9px;
+      font-weight: 780;
+    }
+
+    .trade-button.long { background: var(--green); color: #071d18; }
+    .trade-button.short { background: var(--red); color: white; }
+
+    .hint {
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .empty {
+      padding: 18px 14px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .position-card { border-left: 3px solid var(--line); }
+    .position-card.long { border-left-color: var(--green); }
+    .position-card.short { border-left-color: var(--red); }
+
+    .position-side {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 14px;
+      font-weight: 780;
+    }
+
+    .position-side.long { color: var(--green); }
+    .position-side.short { color: var(--red); }
+
+    .tag {
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: var(--field);
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .position-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 13px 16px;
+      margin-top: 14px;
+    }
+
+    .metric label {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .metric strong {
+      display: block;
+      overflow: hidden;
+      color: #e6ebf1;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .metric strong.positive { color: var(--green); }
+    .metric strong.negative { color: var(--red); }
+
+    .protection-summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #141b25;
+    }
+
+    .protection-summary div {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .protection-summary strong {
+      display: block;
+      margin-top: 3px;
+      color: #e2e7ee;
+      font-size: 12px;
+    }
+
+    .position-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .secondary-button, .close-button, .cancel-button {
+      min-height: 40px;
+      border-radius: 8px;
+      background: var(--field);
+      color: #dce2e9;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .close-button { background: var(--red-dark); color: #ffadb8; }
+
+    .pending-order {
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .pending-order:first-child { border-top: 0; }
+    .pending-head { font-size: 12px; }
+    .pending-head strong.buy { color: var(--green); }
+    .pending-head strong.sell { color: var(--red); }
+
+    .pending-meta {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .pending-meta b {
+      display: block;
+      margin-top: 3px;
+      color: #dfe5ec;
+      font-size: 11px;
+    }
+
+    .cancel-button {
+      width: 100%;
+      min-height: 34px;
+      margin-top: 10px;
+      background: #31242b;
+      color: #ff9dab;
+    }
+
+    .login-overlay {
+      position: fixed;
+      z-index: 50;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      background:
+        radial-gradient(circle at 50% 10%, rgb(240 185 11 / 12%), transparent 34%),
+        #101620;
+    }
+
+    .login-overlay.hidden { display: none; }
+
+    .login-card {
+      width: min(100%, 390px);
+      padding: 25px 20px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .login-logo {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: var(--gold);
+      color: #1d1a0d;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .login-card h1 {
+      margin: 18px 0 7px;
+      font-size: 22px;
+      letter-spacing: -.03em;
+    }
+
+    .login-card p {
+      margin: 0 0 19px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .login-card .input-shell { grid-template-columns: 1fr; }
+
+    .primary-button {
+      width: 100%;
+      margin-top: 11px;
+      background: var(--gold);
+      color: #191708;
+    }
+
+    .login-error {
+      min-height: 18px;
+      margin-top: 10px;
+      color: #ff929f;
+      font-size: 11px;
+    }
+
+    dialog {
+      width: min(calc(100% - 24px), 480px);
+      max-height: calc(100vh - 24px);
+      margin: auto auto 0;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 16px 16px 0 0;
+      background: #1b2330;
+      color: var(--text);
+      box-shadow: var(--shadow);
+    }
+
+    dialog::backdrop {
+      background: rgb(0 0 0 / 65%);
+      backdrop-filter: blur(2px);
+    }
+
+    .dialog-body { padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); }
+
+    .dialog-handle {
+      width: 38px;
+      height: 4px;
+      margin: -5px auto 14px;
+      border-radius: 999px;
+      background: #4b5667;
+    }
+
+    dialog h2 { margin: 0 0 6px; font-size: 17px; }
+
+    .dialog-copy {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .confirm-summary {
+      padding: 11px 12px;
+      border-radius: 9px;
+      background: #131a24;
+      font-size: 12px;
+      line-height: 1.8;
+      white-space: pre-line;
+    }
+
+    .dialog-actions {
+      display: grid;
+      grid-template-columns: 1fr 1.35fr;
+      gap: 9px;
+      margin-top: 14px;
+    }
+
+    .dialog-actions button { min-height: 46px; border-radius: 9px; font-weight: 750; }
+    .dialog-cancel { background: var(--field); }
+    .dialog-confirm { background: var(--gold); color: #191708; }
+    .dialog-confirm.danger { background: var(--red); color: white; }
+
+    @media (min-width: 620px) {
+      body { padding: 22px 0; }
+      .app { min-height: calc(100vh - 44px); border-radius: 18px; overflow: hidden; }
+      dialog { margin-bottom: 22px; border-radius: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topline">
+        <span class="brand">USDⓈ-M Futures</span>
+        <div class="account">
+          <span id="accountName">未登录</span>
+          <button id="logoutButton" class="logout" type="button">退出</button>
+        </div>
+      </div>
+      <div class="symbol-row">
+        <div>
+          <span class="symbol">ETHUSDT</span><span class="perp">PERP</span>
+          <div id="updatedAt" class="stale">等待行情</div>
+        </div>
+        <div class="price-block">
+          <div class="price-label">Mark Price</div>
+          <div id="markPrice" class="price">--</div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div id="notice" class="notice" role="status"></div>
+
+      <section class="card">
+        <div class="card-body">
+          <div class="section-title">
+            <span>开仓</span>
+            <span>One-way Mode</span>
+          </div>
+
+          <div id="orderTypeToggle" class="segmented" aria-label="订单类型">
+            <button type="button" data-value="MARKET" class="active">市价</button>
+            <button type="button" data-value="LIMIT">限价 GTC</button>
+          </div>
+
+          <div id="limitControl" class="control" hidden>
+            <div class="field-head"><strong>限价</strong><span>USDT</span></div>
+            <div class="input-shell">
+              <input id="limitPrice" inputmode="decimal" type="number" step="any" min="0" placeholder="输入 ETH 限价">
+              <span class="suffix">USDT</span>
+            </div>
+          </div>
+
+          <div class="control">
+            <div class="field-head">
+              <strong>数量</strong>
+              <div id="unitToggle" class="unit-toggle">
+                <button type="button" data-value="USDT" class="active">USDT</button>
+                <button type="button" data-value="ETH">ETH</button>
+              </div>
+            </div>
+            <div class="input-shell">
+              <input id="amount" inputmode="decimal" type="number" step="any" min="0" placeholder="输入开仓数量">
+              <span id="amountSuffix" class="suffix">USDT</span>
+            </div>
+          </div>
+
+          <div class="control">
+            <div class="field-head"><strong>杠杆</strong><span id="leverageLabel">20x</span></div>
+            <div class="leverage-grid">
+              <div class="range-wrap">
+                <input id="leverageRange" type="range" min="1" max="125" value="20">
+              </div>
+              <div class="input-shell">
+                <input id="leverage" inputmode="numeric" type="number" min="1" max="125" value="20">
+                <span class="suffix">x</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="protection">
+            <div id="stopRow" class="protect-row disabled">
+              <input id="stopEnabled" class="protect-check" type="checkbox">
+              <div>
+                <div class="field-head"><strong>止损价格</strong><span class="mark-chip">Mark 触发</span></div>
+                <div class="input-shell">
+                  <input id="stopLossPrice" inputmode="decimal" type="number" step="any" min="0" placeholder="可选" disabled>
+                  <span class="suffix">USDT</span>
+                </div>
+              </div>
+            </div>
+
+            <div id="takeRow" class="protect-row disabled">
+              <input id="takeEnabled" class="protect-check" type="checkbox">
+              <div>
+                <div class="field-head"><strong>止盈价格</strong><span class="mark-chip">Mark 触发</span></div>
+                <div class="input-shell">
+                  <input id="takeProfitPrice" inputmode="decimal" type="number" step="any" min="0" placeholder="可选" disabled>
+                  <span class="suffix">USDT</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="order-actions">
+            <button id="openLongButton" class="trade-button long" type="button">开多</button>
+            <button id="openShortButton" class="trade-button short" type="button">开空</button>
+          </div>
+          <div class="hint">提交前会显示确认信息。修改杠杆会影响账户当前 ETHUSDT 仓位。</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-body">
+          <div class="section-title">
+            <span>当前仓位</span>
+            <span id="positionStatus">同步中</span>
+          </div>
+          <div id="positionContent" class="empty">暂无仓位</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-body" style="padding-bottom: 0">
+          <div class="section-title">
+            <span>待成交委托</span>
+            <span id="pendingCount">0 单</span>
+          </div>
+        </div>
+        <div id="pendingOrders"><div class="empty">暂无手动限价委托</div></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="login-overlay">
+    <form id="loginForm" class="login-card">
+      <div class="login-logo">Ξ</div>
+      <h1>ETHUSDT 手动交易</h1>
+      <p>输入账户对应的交易 token。Token 只保存在当前浏览器会话中，所有 Binance 密钥均保留在服务端。</p>
+      <div class="input-shell">
+        <input id="tokenInput" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Bearer token" required>
+      </div>
+      <button id="loginButton" class="primary-button" type="submit">验证并进入</button>
+      <div id="loginError" class="login-error"></div>
+    </form>
+  </div>
+
+  <dialog id="confirmDialog">
+    <div class="dialog-body">
+      <div class="dialog-handle"></div>
+      <h2 id="confirmTitle">确认操作</h2>
+      <p id="confirmCopy" class="dialog-copy"></p>
+      <div id="confirmSummary" class="confirm-summary"></div>
+      <div class="dialog-actions">
+        <button id="confirmCancel" class="dialog-cancel" type="button">取消</button>
+        <button id="confirmExecute" class="dialog-confirm" type="button">确认</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="protectionDialog">
+    <form id="protectionForm" class="dialog-body">
+      <div class="dialog-handle"></div>
+      <h2>修改止盈止损</h2>
+      <p class="dialog-copy">留空并保存将移除对应保护。新的保护挂单成功前会保留旧保护。</p>
+      <div class="control">
+        <div class="field-head"><strong>止损价格</strong><span>Mark Price</span></div>
+        <div class="input-shell">
+          <input id="editStop" inputmode="decimal" type="number" step="any" min="0" placeholder="不设置">
+          <span class="suffix">USDT</span>
+        </div>
+      </div>
+      <div class="control">
+        <div class="field-head"><strong>止盈价格</strong><span>Mark Price</span></div>
+        <div class="input-shell">
+          <input id="editTake" inputmode="decimal" type="number" step="any" min="0" placeholder="不设置">
+          <span class="suffix">USDT</span>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button id="protectionCancel" class="dialog-cancel" type="button">取消</button>
+        <button class="dialog-confirm" type="submit">保存保护</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    "use strict";
+
+    const TOKEN_KEY = "manual-trading-token";
+    const state = {
+      token: sessionStorage.getItem(TOKEN_KEY) || "",
+      account: "",
+      orderType: "MARKET",
+      amountUnit: "USDT",
+      snapshot: null,
+      lastPrice: null,
+      polling: null,
+      busy: false,
+      pendingAction: null
+    };
+
+    const $ = id => document.getElementById(id);
+    const els = {
+      accountName: $("accountName"),
+      updatedAt: $("updatedAt"),
+      markPrice: $("markPrice"),
+      notice: $("notice"),
+      orderTypeToggle: $("orderTypeToggle"),
+      unitToggle: $("unitToggle"),
+      limitControl: $("limitControl"),
+      limitPrice: $("limitPrice"),
+      amount: $("amount"),
+      amountSuffix: $("amountSuffix"),
+      leverageRange: $("leverageRange"),
+      leverage: $("leverage"),
+      leverageLabel: $("leverageLabel"),
+      stopEnabled: $("stopEnabled"),
+      stopLossPrice: $("stopLossPrice"),
+      stopRow: $("stopRow"),
+      takeEnabled: $("takeEnabled"),
+      takeProfitPrice: $("takeProfitPrice"),
+      takeRow: $("takeRow"),
+      openLongButton: $("openLongButton"),
+      openShortButton: $("openShortButton"),
+      positionContent: $("positionContent"),
+      positionStatus: $("positionStatus"),
+      pendingOrders: $("pendingOrders"),
+      pendingCount: $("pendingCount"),
+      loginOverlay: $("loginOverlay"),
+      loginForm: $("loginForm"),
+      tokenInput: $("tokenInput"),
+      loginButton: $("loginButton"),
+      loginError: $("loginError"),
+      logoutButton: $("logoutButton"),
+      confirmDialog: $("confirmDialog"),
+      confirmTitle: $("confirmTitle"),
+      confirmCopy: $("confirmCopy"),
+      confirmSummary: $("confirmSummary"),
+      confirmCancel: $("confirmCancel"),
+      confirmExecute: $("confirmExecute"),
+      protectionDialog: $("protectionDialog"),
+      protectionForm: $("protectionForm"),
+      protectionCancel: $("protectionCancel"),
+      editStop: $("editStop"),
+      editTake: $("editTake")
+    };
+
+    function requestId() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function parseNumber(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatNumber(value, maximumFractionDigits = 4) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "--";
+      return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits
+      }).format(number);
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function errorMessage(payload, fallback) {
+      if (!payload) return fallback;
+      if (typeof payload.detail === "string") return payload.detail;
+      if (Array.isArray(payload.detail)) {
+        return payload.detail.map(item => item.msg || "输入无效").join("；");
+      }
+      return fallback;
+    }
+
+    async function api(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set("Authorization", `Bearer ${state.token}`);
+      if (options.body) headers.set("Content-Type", "application/json");
+      const response = await fetch(path, { cache: "no-store", ...options, headers });
+      let payload = null;
+      try { payload = await response.json(); } catch (_) {}
+      if (!response.ok) {
+        const error = new Error(errorMessage(payload, `请求失败 (${response.status})`));
+        error.status = response.status;
+        throw error;
+      }
+      return payload;
+    }
+
+    function showNotice(message, type = "") {
+      els.notice.textContent = message;
+      els.notice.className = `notice show ${type}`.trim();
+      clearTimeout(showNotice.timer);
+      showNotice.timer = setTimeout(() => {
+        els.notice.className = "notice";
+      }, 6500);
+    }
+
+    function setBusy(value) {
+      state.busy = value;
+      document.querySelectorAll("button").forEach(button => {
+        if (!button.closest(".login-overlay")) button.disabled = value;
+      });
+      els.loginButton.disabled = value;
+    }
+
+    async function login(token) {
+      state.token = token.trim();
+      if (!state.token) return;
+      setBusy(true);
+      els.loginError.textContent = "";
+      try {
+        const payload = await api("/api/manual/auth", { method: "POST" });
+        state.account = payload.account;
+        sessionStorage.setItem(TOKEN_KEY, state.token);
+        els.accountName.textContent = payload.account;
+        els.loginOverlay.classList.add("hidden");
+        await refreshState(true);
+        startPolling();
+      } catch (error) {
+        state.token = "";
+        sessionStorage.removeItem(TOKEN_KEY);
+        els.loginError.textContent = error.message;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function logout() {
+      stopPolling();
+      state.token = "";
+      state.account = "";
+      state.snapshot = null;
+      sessionStorage.removeItem(TOKEN_KEY);
+      els.tokenInput.value = "";
+      els.accountName.textContent = "未登录";
+      els.loginOverlay.classList.remove("hidden");
+    }
+
+    async function refreshState(force = false) {
+      if (!state.token || document.hidden || (state.busy && !force)) return;
+      try {
+        const snapshot = await api("/api/manual/state");
+        state.snapshot = snapshot;
+        state.account = snapshot.account;
+        render(snapshot);
+      } catch (error) {
+        if (error.status === 401) {
+          logout();
+          els.loginError.textContent = "Token 已失效，请重新输入";
+          return;
+        }
+        showNotice(`状态刷新失败：${error.message}`, "error");
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      state.polling = setInterval(refreshState, 2000);
+    }
+
+    function stopPolling() {
+      if (state.polling) clearInterval(state.polling);
+      state.polling = null;
+    }
+
+    function render(snapshot) {
+      els.accountName.textContent = snapshot.account;
+      const price = Number(snapshot.markPrice);
+      els.markPrice.textContent = formatNumber(price, 4);
+      els.markPrice.className = "price";
+      if (state.lastPrice !== null && price !== state.lastPrice) {
+        els.markPrice.classList.add(price > state.lastPrice ? "up" : "down");
+      }
+      state.lastPrice = price;
+      const updated = new Date(snapshot.updatedAt);
+      els.updatedAt.textContent = `更新 ${updated.toLocaleTimeString("zh-CN", { hour12: false })}`;
+      renderPosition(snapshot.position, snapshot.protection);
+      renderPending(snapshot.pendingOrders || []);
+    }
+
+    function renderPosition(position, protection) {
+      const flat = position.side === "flat";
+      els.positionStatus.textContent = flat ? "空仓" : "持仓中";
+      if (flat) {
+        els.positionContent.className = "empty";
+        els.positionContent.textContent = "暂无 ETHUSDT 仓位";
+        return;
+      }
+      const pnl = Number(position.unrealizedPnl);
+      const sideLabel = position.side === "long" ? "多仓" : "空仓";
+      const stop = protection?.stopLossPrice || "--";
+      const take = protection?.takeProfitPrice || "--";
+      els.positionContent.className = `position-card ${position.side}`;
+      els.positionContent.innerHTML = `
+        <div class="position-line">
+          <span class="position-side ${position.side}">${sideLabel} <span class="tag">${escapeHtml(position.marginType)}</span></span>
+          <span class="tag">${escapeHtml(position.leverage)}x</span>
+        </div>
+        <div class="position-grid">
+          <div class="metric"><label>仓位数量</label><strong>${escapeHtml(formatNumber(position.quantity, 6))} ETH</strong></div>
+          <div class="metric"><label>浮动盈亏</label><strong class="${pnl > 0 ? "positive" : pnl < 0 ? "negative" : ""}">${escapeHtml(formatNumber(pnl, 4))} USDT</strong></div>
+          <div class="metric"><label>开仓均价</label><strong>${escapeHtml(formatNumber(position.entryPrice, 4))}</strong></div>
+          <div class="metric"><label>Mark Price</label><strong>${escapeHtml(formatNumber(position.markPrice, 4))}</strong></div>
+          <div class="metric"><label>名义价值</label><strong>${escapeHtml(formatNumber(Math.abs(Number(position.notional)), 2))} USDT</strong></div>
+          <div class="metric"><label>强平价格</label><strong>${Number(position.liquidationPrice) ? escapeHtml(formatNumber(position.liquidationPrice, 4)) : "--"}</strong></div>
+        </div>
+        <div class="protection-summary">
+          <div>止损 <strong>${escapeHtml(stop)}</strong></div>
+          <div>止盈 <strong>${escapeHtml(take)}</strong></div>
+        </div>
+        <div class="position-buttons">
+          <button class="secondary-button" type="button" data-action="edit-protection">修改止盈止损</button>
+          <button class="close-button" type="button" data-action="close-position">市价全平</button>
+        </div>
+      `;
+    }
+
+    function renderPending(orders) {
+      els.pendingCount.textContent = `${orders.length} 单`;
+      if (!orders.length) {
+        els.pendingOrders.innerHTML = '<div class="empty">暂无手动限价委托</div>';
+        return;
+      }
+      els.pendingOrders.innerHTML = orders.map(order => {
+        const side = String(order.side).toUpperCase();
+        return `
+          <div class="pending-order">
+            <div class="pending-head">
+              <strong class="${side === "BUY" ? "buy" : "sell"}">${side === "BUY" ? "开多" : "开空"} · ${escapeHtml(order.orderType)}</strong>
+              <span class="tag">${escapeHtml(order.status)}</span>
+            </div>
+            <div class="pending-meta">
+              <div>价格<b>${escapeHtml(formatNumber(order.price, 4))}</b></div>
+              <div>数量<b>${escapeHtml(formatNumber(order.quantity, 6))} ETH</b></div>
+              <div>已成交<b>${escapeHtml(formatNumber(order.executedQuantity, 6))}</b></div>
+            </div>
+            <button class="cancel-button" type="button" data-action="cancel-order" data-order-id="${escapeHtml(order.orderId)}">撤销委托</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function selectToggle(container, value) {
+      container.querySelectorAll("button").forEach(button => {
+        button.classList.toggle("active", button.dataset.value === value);
+      });
+    }
+
+    function syncProtection(check, input, row) {
+      input.disabled = !check.checked;
+      row.classList.toggle("disabled", !check.checked);
+      if (!check.checked) input.value = "";
+    }
+
+    function orderPayload(side) {
+      const amount = parseNumber(els.amount.value);
+      const leverage = parseNumber(els.leverage.value);
+      const limitPrice = parseNumber(els.limitPrice.value);
+      const stopLossPrice = els.stopEnabled.checked ? parseNumber(els.stopLossPrice.value) : null;
+      const takeProfitPrice = els.takeEnabled.checked ? parseNumber(els.takeProfitPrice.value) : null;
+      if (!amount || amount <= 0) throw new Error("请输入有效数量");
+      if (!leverage || leverage < 1 || leverage > 125 || !Number.isInteger(leverage)) {
+        throw new Error("杠杆必须为 1–125 的整数");
+      }
+      if (state.orderType === "LIMIT" && (!limitPrice || limitPrice <= 0)) {
+        throw new Error("请输入有效限价");
+      }
+      if (els.stopEnabled.checked && (!stopLossPrice || stopLossPrice <= 0)) {
+        throw new Error("请输入有效止损价格");
+      }
+      if (els.takeEnabled.checked && (!takeProfitPrice || takeProfitPrice <= 0)) {
+        throw new Error("请输入有效止盈价格");
+      }
+      return {
+        clientRequestId: requestId(),
+        side,
+        orderType: state.orderType,
+        amount,
+        amountUnit: state.amountUnit,
+        leverage,
+        ...(state.orderType === "LIMIT" ? { limitPrice } : {}),
+        ...(stopLossPrice ? { stopLossPrice } : {}),
+        ...(takeProfitPrice ? { takeProfitPrice } : {})
+      };
+    }
+
+    function openConfirm(config) {
+      state.pendingAction = config.action;
+      els.confirmTitle.textContent = config.title;
+      els.confirmCopy.textContent = config.copy || "";
+      els.confirmSummary.textContent = config.summary;
+      els.confirmExecute.textContent = config.button || "确认";
+      els.confirmExecute.classList.toggle("danger", Boolean(config.danger));
+      els.confirmDialog.showModal();
+    }
+
+    function confirmOpen(side) {
+      try {
+        const payload = orderPayload(side);
+        const direction = side === "BUY" ? "开多" : "开空";
+        const orderPrice = payload.orderType === "MARKET" ? "市价" : `${payload.limitPrice} USDT`;
+        const protection = [
+          payload.stopLossPrice ? `止损 ${payload.stopLossPrice}` : "",
+          payload.takeProfitPrice ? `止盈 ${payload.takeProfitPrice}` : ""
+        ].filter(Boolean).join(" · ") || "不设置止盈止损";
+        openConfirm({
+          title: `确认${direction} ETHUSDT`,
+          copy: `账户 ${state.account} · 杠杆将在下单前调整为 ${payload.leverage}x`,
+          summary: `订单：${payload.orderType} / ${orderPrice}\n数量：${payload.amount} ${payload.amountUnit}\n保护：${protection}`,
+          button: `确认${direction}`,
+          danger: side === "SELL",
+          action: () => api("/api/manual/orders", {
+            method: "POST",
+            body: JSON.stringify(payload)
+          })
+        });
+      } catch (error) {
+        showNotice(error.message, "error");
+      }
+    }
+
+    function confirmClose() {
+      const position = state.snapshot?.position;
+      if (!position || position.side === "flat") return;
+      const payload = { clientRequestId: requestId() };
+      openConfirm({
+        title: "确认市价全平",
+        copy: "将撤销 ETHUSDT 的待成交委托和保护单，然后以 reduceOnly 市价单平掉完整净仓位。",
+        summary: `账户：${state.account}\n方向：${position.side === "long" ? "多仓" : "空仓"}\n数量：${position.quantity} ETH`,
+        button: "确认全平",
+        danger: true,
+        action: () => api("/api/manual/positions/ETHUSDT/close", {
+          method: "POST",
+          body: JSON.stringify(payload)
+        })
+      });
+    }
+
+    function confirmCancelOrder(orderId) {
+      const payload = { clientRequestId: requestId() };
+      openConfirm({
+        title: "撤销限价委托",
+        copy: "已部分成交的仓位不会被平掉。",
+        summary: `账户：${state.account}\n订单 ID：${orderId}`,
+        button: "确认撤单",
+        danger: true,
+        action: () => api(`/api/manual/orders/${orderId}`, {
+          method: "DELETE",
+          body: JSON.stringify(payload)
+        })
+      });
+    }
+
+    async function executeConfirmed() {
+      if (!state.pendingAction || state.busy) return;
+      setBusy(true);
+      els.confirmExecute.textContent = "处理中…";
+      try {
+        await state.pendingAction();
+        els.confirmDialog.close();
+        showNotice("操作已成功提交", "success");
+        await refreshState(true);
+      } catch (error) {
+        showNotice(error.message, "error");
+      } finally {
+        state.pendingAction = null;
+        setBusy(false);
+      }
+    }
+
+    function openProtectionEditor() {
+      const protection = state.snapshot?.protection;
+      els.editStop.value = protection?.stopLossPrice || "";
+      els.editTake.value = protection?.takeProfitPrice || "";
+      els.protectionDialog.showModal();
+    }
+
+    async function saveProtection(event) {
+      event.preventDefault();
+      if (state.busy) return;
+      const stop = parseNumber(els.editStop.value);
+      const take = parseNumber(els.editTake.value);
+      const payload = {
+        clientRequestId: requestId(),
+        ...(stop && stop > 0 ? { stopLossPrice: stop } : {}),
+        ...(take && take > 0 ? { takeProfitPrice: take } : {})
+      };
+      setBusy(true);
+      try {
+        await api("/api/manual/positions/ETHUSDT/protection", {
+          method: "PUT",
+          body: JSON.stringify(payload)
+        });
+        els.protectionDialog.close();
+        showNotice("止盈止损已更新", "success");
+        await refreshState(true);
+      } catch (error) {
+        showNotice(error.message, "error");
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    els.loginForm.addEventListener("submit", event => {
+      event.preventDefault();
+      login(els.tokenInput.value);
+    });
+    els.logoutButton.addEventListener("click", logout);
+
+    els.orderTypeToggle.addEventListener("click", event => {
+      const value = event.target.dataset.value;
+      if (!value) return;
+      state.orderType = value;
+      selectToggle(els.orderTypeToggle, value);
+      els.limitControl.hidden = value !== "LIMIT";
+      if (value === "LIMIT" && !els.limitPrice.value && state.snapshot) {
+        els.limitPrice.value = state.snapshot.markPrice;
+      }
+    });
+
+    els.unitToggle.addEventListener("click", event => {
+      const value = event.target.dataset.value;
+      if (!value) return;
+      state.amountUnit = value;
+      selectToggle(els.unitToggle, value);
+      els.amountSuffix.textContent = value;
+      els.amount.placeholder = value === "USDT" ? "输入 USDT 名义金额" : "输入 ETH 数量";
+    });
+
+    els.leverageRange.addEventListener("input", () => {
+      els.leverage.value = els.leverageRange.value;
+      els.leverageLabel.textContent = `${els.leverageRange.value}x`;
+    });
+    els.leverage.addEventListener("input", () => {
+      const value = Math.max(1, Math.min(125, Number(els.leverage.value) || 1));
+      els.leverageRange.value = value;
+      els.leverageLabel.textContent = `${value}x`;
+    });
+
+    els.stopEnabled.addEventListener("change", () => {
+      syncProtection(els.stopEnabled, els.stopLossPrice, els.stopRow);
+    });
+    els.takeEnabled.addEventListener("change", () => {
+      syncProtection(els.takeEnabled, els.takeProfitPrice, els.takeRow);
+    });
+
+    els.openLongButton.addEventListener("click", () => confirmOpen("BUY"));
+    els.openShortButton.addEventListener("click", () => confirmOpen("SELL"));
+    els.confirmCancel.addEventListener("click", () => els.confirmDialog.close());
+    els.confirmExecute.addEventListener("click", executeConfirmed);
+    els.protectionCancel.addEventListener("click", () => els.protectionDialog.close());
+    els.protectionForm.addEventListener("submit", saveProtection);
+
+    els.positionContent.addEventListener("click", event => {
+      const action = event.target.dataset.action;
+      if (action === "close-position") confirmClose();
+      if (action === "edit-protection") openProtectionEditor();
+    });
+    els.pendingOrders.addEventListener("click", event => {
+      if (event.target.dataset.action === "cancel-order") {
+        confirmCancelOrder(event.target.dataset.orderId);
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.token) refreshState();
+    });
+
+    if (state.token) {
+      login(state.token);
+    } else {
+      els.tokenInput.focus();
+    }
+  </script>
+</body>
+</html>

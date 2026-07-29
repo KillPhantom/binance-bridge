@@ -38,7 +38,7 @@ class BracketWorker:
 
     @staticmethod
     def _priority(bracket: dict) -> int:
-        return 1 if bracket["status"] == "protected" else 0
+        return 1 if bracket["status"] in {"protected", "monitoring"} else 0
 
     def _protected_reconcile_due(self, bracket_id: int, now: float) -> bool:
         last_checked = self._last_protected_reconcile.get(bracket_id)
@@ -52,8 +52,9 @@ class BracketWorker:
         while not self._stopping.is_set():
             for bracket in sorted(self.store.list_active_brackets(), key=self._priority):
                 bracket_id = int(bracket["id"])
-                if bracket["status"] == "protected" and not self._protected_reconcile_due(
-                    bracket_id, loop.time()
+                if (
+                    bracket["status"] in {"protected", "monitoring"}
+                    and not self._protected_reconcile_due(bracket_id, loop.time())
                 ):
                     continue
                 try:
@@ -63,8 +64,9 @@ class BracketWorker:
                             "awaiting_entry",
                             "protecting",
                             "protected",
+                            "monitoring",
                         }:
-                            if current["status"] == "protected":
+                            if current["status"] in {"protected", "monitoring"}:
                                 if not self._protected_reconcile_due(
                                     bracket_id, loop.time()
                                 ):
@@ -99,6 +101,8 @@ class BracketWorker:
         elif bracket["status"] == "protecting":
             await self._install_protection(bracket)
         elif bracket["status"] == "protected":
+            await self._reconcile_protected(bracket)
+        elif bracket["status"] == "monitoring":
             await self._reconcile_protected(bracket)
 
     async def _process_entry(self, bracket: dict) -> None:
@@ -144,11 +148,14 @@ class BracketWorker:
                 )
 
     def _entry_timed_out(self, bracket: dict) -> bool:
+        timeout = bracket.get("entry_timeout_seconds")
+        if timeout is None:
+            return False
         created_at = datetime.fromisoformat(str(bracket["created_at"]))
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
         age = (datetime.now(timezone.utc) - created_at).total_seconds()
-        return age >= self.settings.entry_order_timeout_seconds
+        return age >= float(timeout)
 
     async def _begin_protection(self, bracket: dict) -> None:
         position = await self.client.get_position(bracket["symbol"])
@@ -158,6 +165,11 @@ class BracketWorker:
                 bracket["id"],
                 status="position_mismatch",
                 error=f"expected {expected}, found {position.side}",
+            )
+            return
+        if not bracket.get("stop_loss_price") and not bracket.get("take_profit_price"):
+            self.store.update_bracket(
+                bracket["id"], status="monitoring", error=None
             )
             return
         await self.client.cancel_all_algo_open_orders(bracket["symbol"])
@@ -177,37 +189,41 @@ class BracketWorker:
         bracket_id = int(bracket["id"])
         try:
             if bracket.get("stop_algo_id") is None:
-                stop_price = await self._normalized_trigger(
-                    bracket["symbol"], bracket["stop_loss_price"]
-                )
-                response = await self.client.place_close_position_algo_order(
-                    bracket["symbol"],
-                    exit_side,
-                    "STOP_MARKET",
-                    stop_price,
-                    f"tvb{bracket_id}sl",
-                )
-                stop_algo_id = int(response["algoId"])
-                self.store.update_bracket(
-                    bracket_id, stop_algo_id=stop_algo_id, error=None
-                )
-                bracket["stop_algo_id"] = stop_algo_id
+                if bracket.get("stop_loss_price"):
+                    stop_price = await self._normalized_trigger(
+                        bracket["symbol"], bracket["stop_loss_price"]
+                    )
+                    response = await self.client.place_close_position_algo_order(
+                        bracket["symbol"],
+                        exit_side,
+                        "STOP_MARKET",
+                        stop_price,
+                        f"tvb{bracket_id}sl",
+                        working_type=bracket.get("working_type"),
+                    )
+                    stop_algo_id = int(response["algoId"])
+                    self.store.update_bracket(
+                        bracket_id, stop_algo_id=stop_algo_id, error=None
+                    )
+                    bracket["stop_algo_id"] = stop_algo_id
             if bracket.get("take_profit_algo_id") is None:
-                take_profit_price = await self._normalized_trigger(
-                    bracket["symbol"], bracket["take_profit_price"]
-                )
-                response = await self.client.place_close_position_algo_order(
-                    bracket["symbol"],
-                    exit_side,
-                    "TAKE_PROFIT_MARKET",
-                    take_profit_price,
-                    f"tvb{bracket_id}tp",
-                )
-                take_profit_algo_id = int(response["algoId"])
-                self.store.update_bracket(
-                    bracket_id, take_profit_algo_id=take_profit_algo_id, error=None
-                )
-                bracket["take_profit_algo_id"] = take_profit_algo_id
+                if bracket.get("take_profit_price"):
+                    take_profit_price = await self._normalized_trigger(
+                        bracket["symbol"], bracket["take_profit_price"]
+                    )
+                    response = await self.client.place_close_position_algo_order(
+                        bracket["symbol"],
+                        exit_side,
+                        "TAKE_PROFIT_MARKET",
+                        take_profit_price,
+                        f"tvb{bracket_id}tp",
+                        working_type=bracket.get("working_type"),
+                    )
+                    take_profit_algo_id = int(response["algoId"])
+                    self.store.update_bracket(
+                        bracket_id, take_profit_algo_id=take_profit_algo_id, error=None
+                    )
+                    bracket["take_profit_algo_id"] = take_profit_algo_id
         except BinanceAPIError as exc:
             if not self._is_immediate_trigger_error(exc):
                 raise
@@ -283,6 +299,20 @@ class BracketWorker:
         expected = "long" if bracket["entry_side"] == "BUY" else "short"
         if position.side == expected:
             return
+        if bracket.get("source") == "manual" and bracket.get("entry_order_id"):
+            try:
+                order = await self.client.query_order(
+                    bracket["symbol"], int(bracket["entry_order_id"])
+                )
+                if str(order.get("status", "")).upper() in {"NEW", "PARTIALLY_FILLED"}:
+                    await self.client.cancel_order(
+                        bracket["symbol"], int(bracket["entry_order_id"])
+                    )
+            except BinanceAPIError:
+                logger.warning(
+                    "could not cancel manual entry while reconciling bracket_id=%s",
+                    bracket["id"],
+                )
         await self.client.cancel_all_algo_open_orders(bracket["symbol"])
         status = "closed" if position.side == "flat" else "position_replaced"
         self.store.update_bracket(bracket["id"], status=status, error=None)

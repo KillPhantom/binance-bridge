@@ -181,12 +181,44 @@ class BinanceClient:
             "GET", "/fapi/v1/order", {"symbol": symbol, "orderId": order_id}
         )
 
+    async def query_order_by_client_id(
+        self, symbol: str, client_order_id: str
+    ) -> dict[str, Any]:
+        if self.dry_run:
+            return {
+                "dryRun": True,
+                "symbol": symbol,
+                "clientOrderId": client_order_id,
+                "orderId": 1,
+                "status": "FILLED",
+                "executedQty": "0",
+            }
+        return await self.signed_request(
+            "GET",
+            "/fapi/v1/order",
+            {"symbol": symbol, "origClientOrderId": client_order_id},
+        )
+
     async def cancel_all_algo_open_orders(self, symbol: str) -> dict[str, Any]:
         if self.dry_run:
             return {"dryRun": True, "operation": "cancel_all_algo", "symbol": symbol}
         return await self.signed_request(
             "DELETE", "/fapi/v1/algoOpenOrders", {"symbol": symbol}
         )
+
+    async def get_open_algo_orders(self, symbol: str) -> list[dict[str, Any]]:
+        if self.dry_run:
+            return []
+        response = await self.signed_request(
+            "GET", "/fapi/v1/openAlgoOrders", {"symbol": symbol}
+        )
+        if isinstance(response, list):
+            return [item for item in response if isinstance(item, dict)]
+        if isinstance(response, dict):
+            rows = response.get("orders") or response.get("rows") or []
+            if isinstance(rows, list):
+                return [item for item in rows if isinstance(item, dict)]
+        raise BinanceAPIError(200, "unexpected openAlgoOrders response format")
 
     async def cancel_algo_order(self, algo_id: int) -> dict[str, Any]:
         if self.dry_run:
@@ -202,6 +234,7 @@ class BinanceClient:
         order_type: str,
         trigger_price: Decimal,
         client_algo_id: str,
+        working_type: str | None = None,
     ) -> dict[str, Any]:
         if order_type not in {"STOP_MARKET", "TAKE_PROFIT_MARKET"}:
             raise ValueError("unsupported close-position algo order type")
@@ -212,7 +245,7 @@ class BinanceClient:
             "type": order_type,
             "positionSide": "BOTH",
             "triggerPrice": decimal_string(trigger_price),
-            "workingType": self.settings.algo_working_type,
+            "workingType": working_type or self.settings.algo_working_type,
             "closePosition": True,
             "priceProtect": self.settings.algo_price_protect,
             "clientAlgoId": client_algo_id,
@@ -267,7 +300,12 @@ class BinanceClient:
         }
 
     async def place_market_order(
-        self, symbol: str, side: str, quantity: Decimal, reduce_only: bool
+        self,
+        symbol: str,
+        side: str,
+        quantity: Decimal,
+        reduce_only: bool,
+        client_order_id: str | None = None,
     ) -> dict[str, Any]:
         params = {
             "symbol": symbol,
@@ -278,8 +316,17 @@ class BinanceClient:
             "reduceOnly": reduce_only,
             "newOrderRespType": "RESULT",
         }
+        if client_order_id:
+            params["newClientOrderId"] = client_order_id
         if self.dry_run:
-            return {"dryRun": True, **params}
+            return {
+                "dryRun": True,
+                "orderId": 1,
+                "status": "FILLED",
+                "executedQty": decimal_string(quantity),
+                "avgPrice": "1",
+                **params,
+            }
         return await self.signed_request("POST", "/fapi/v1/order", params)
 
     async def place_limit_order(
@@ -288,6 +335,7 @@ class BinanceClient:
         side: str,
         quantity: Decimal,
         price: Decimal,
+        client_order_id: str | None = None,
     ) -> dict[str, Any]:
         params = {
             "symbol": symbol,
@@ -300,9 +348,25 @@ class BinanceClient:
             "reduceOnly": False,
             "newOrderRespType": "RESULT",
         }
+        if client_order_id:
+            params["newClientOrderId"] = client_order_id
         if self.dry_run:
-            return {"dryRun": True, **params}
+            return {
+                "dryRun": True,
+                "orderId": 1,
+                "status": "NEW",
+                "executedQty": "0",
+                **params,
+            }
         return await self.signed_request("POST", "/fapi/v1/order", params)
+
+    async def change_leverage(self, symbol: str, leverage: int) -> dict[str, Any]:
+        if not 1 <= leverage <= 125:
+            raise ValueError("leverage must be between 1 and 125")
+        params = {"symbol": symbol, "leverage": leverage}
+        if self.dry_run:
+            return {"dryRun": True, "maxNotionalValue": "0", **params}
+        return await self.signed_request("POST", "/fapi/v1/leverage", params)
 
     async def place_reduce_only_limit_order(
         self,
