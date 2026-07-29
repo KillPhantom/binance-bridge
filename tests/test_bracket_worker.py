@@ -17,14 +17,16 @@ def create_bracket(
     event_id: str = "entry-1",
     symbol: str = "BTCUSDT",
     entry_order_id: int = 101,
+    stop_loss_price: str = "39000",
+    take_profit_price: str = "41000",
 ) -> dict:
     store.create_bracket(
         event_id=event_id,
         symbol=symbol,
         entry_order_id=entry_order_id,
         entry_side="BUY",
-        stop_loss_price="39000",
-        take_profit_price="41000",
+        stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price,
     )
     return next(
         bracket
@@ -34,16 +36,20 @@ def create_bracket(
 
 
 @pytest.mark.asyncio
-async def test_partial_fill_cancels_remainder_and_installs_two_close_all_algos(tmp_path):
+@pytest.mark.parametrize("entry_status", ["PARTIALLY_FILLED", "EXPIRED"])
+async def test_executed_market_entry_is_protected_without_canceling_remainder(
+    tmp_path, entry_status
+):
     store = EventStore(tmp_path / "events.db")
-    bracket = create_bracket(store)
+    bracket = create_bracket(
+        store, stop_loss_price="39050", take_profit_price="41050"
+    )
     client = AsyncMock()
     client.query_order.return_value = {
         "orderId": 101,
-        "status": "PARTIALLY_FILLED",
+        "status": entry_status,
         "executedQty": "0.002",
     }
-    client.cancel_order.return_value = {"status": "CANCELED"}
     client.get_position.return_value = Position(symbol="BTCUSDT", amount="0.002")
     client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.get_symbol_filters.return_value = {
@@ -57,9 +63,15 @@ async def test_partial_fill_cancels_remainder_and_installs_two_close_all_algos(t
 
     await worker._process(bracket)
 
-    client.cancel_order.assert_awaited_once_with("BTCUSDT", 101)
-    assert client.place_close_position_algo_order.await_args_list[0].args[2] == "STOP_MARKET"
-    assert client.place_close_position_algo_order.await_args_list[1].args[2] == "TAKE_PROFIT_MARKET"
+    client.cancel_order.assert_not_awaited()
+    assert client.place_close_position_algo_order.await_args_list[0].args[2:4] == (
+        "STOP_MARKET",
+        Decimal("39050"),
+    )
+    assert client.place_close_position_algo_order.await_args_list[1].args[2:4] == (
+        "TAKE_PROFIT_MARKET",
+        Decimal("41050"),
+    )
     updated = store.get_bracket(bracket["id"])
     assert updated["status"] == "protected"
     assert updated["stop_algo_id"] == 201

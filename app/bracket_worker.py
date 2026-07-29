@@ -108,13 +108,13 @@ class BracketWorker:
         status = str(order.get("status", "")).upper()
         executed = Decimal(str(order.get("executedQty", "0")))
         if status == "PARTIALLY_FILLED":
-            await self.client.cancel_order(
-                bracket["symbol"], int(bracket["entry_order_id"])
-            )
+            # MARKET entries do not leave a resting remainder like LIMIT GTC
+            # entries. Protect the live position immediately; closePosition
+            # algo orders will cover the whole position if matching continues.
             await self._begin_protection(bracket)
         elif status == "FILLED":
             await self._begin_protection(bracket)
-        elif status in {"CANCELED", "EXPIRED", "REJECTED"}:
+        elif status in {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"}:
             if executed > 0:
                 await self._begin_protection(bracket)
             else:

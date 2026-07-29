@@ -59,32 +59,44 @@ class RiskEngine:
                 raise PositionTimeoutError(f"{symbol} did not become flat before timeout")
             await asyncio.sleep(self.settings.position_poll_interval)
 
-    async def _normalize_limit_order(
+    async def _normalize_market_order(
         self,
         symbol: str,
-        price: Decimal,
+        reference_price: Decimal,
         notional_amount: Decimal,
-    ) -> tuple[Decimal, Decimal]:
+    ) -> Decimal:
         filters = await self.client.get_symbol_filters(symbol)
-        lot = filters.get("LOT_SIZE") or filters.get("MARKET_LOT_SIZE")
+        lot = filters.get("MARKET_LOT_SIZE") or filters.get("LOT_SIZE")
         if not lot:
-            raise ValueError(f"LOT_SIZE filter unavailable for {symbol}")
-        price_filter = filters.get("PRICE_FILTER")
-        if not price_filter:
-            raise ValueError(f"PRICE_FILTER unavailable for {symbol}")
+            raise ValueError(f"MARKET_LOT_SIZE/LOT_SIZE filter unavailable for {symbol}")
         quantity = round_step_size(
-            notional_amount / price, Decimal(lot["stepSize"])
+            notional_amount / reference_price, Decimal(lot["stepSize"])
         )
-        normalized_price = round_step_size(price, Decimal(price_filter["tickSize"]))
         minimum = Decimal(lot["minQty"])
         if quantity < minimum:
             raise ValueError(f"order amount {quantity} is below minimum {minimum}")
         notional_filter = filters.get("MIN_NOTIONAL") or filters.get("NOTIONAL")
         if notional_filter:
             minimum_notional = Decimal(str(notional_filter.get("notional") or notional_filter.get("minNotional") or "0"))
-            if quantity * normalized_price < minimum_notional:
-                raise ValueError("limit order is below Binance minimum notional")
-        return normalized_price, quantity
+            if quantity * reference_price < minimum_notional:
+                raise ValueError("market order is below Binance minimum notional")
+        return quantity
+
+    @staticmethod
+    def _fill_price(order: dict[str, Any]) -> Decimal | None:
+        if not isinstance(order, dict):
+            return None
+        try:
+            avg_price = Decimal(str(order.get("avgPrice", "0")))
+            executed_quantity = Decimal(str(order.get("executedQty", "0")))
+            cumulative_quote = Decimal(str(order.get("cumQuote", "0")))
+        except (ArithmeticError, ValueError):
+            return None
+        if avg_price > 0:
+            return avg_price
+        if executed_quantity > 0 and cumulative_quote > 0:
+            return cumulative_quote / executed_quantity
+        return None
 
     async def _normalize_full_position_limit_order(
         self, symbol: str, price: Decimal, position_quantity: Decimal
@@ -125,22 +137,34 @@ class RiskEngine:
                 symbol, close_side, abs(position.amount), True
             ))
             position = await self._wait_flat(symbol)
-        normalized_price, quantity = await self._normalize_limit_order(symbol, price, amount)
+        quantity = await self._normalize_market_order(symbol, price, amount)
         binance_side = side.upper()
-        responses.append(
-            await self.client.place_limit_order(
-                symbol, binance_side, quantity, normalized_price
-            )
+        opening_order = await self.client.place_market_order(
+            symbol, binance_side, quantity, False
         )
+        responses.append(opening_order)
+        entry_fill_price = self._fill_price(opening_order)
+        if entry_fill_price is None and opening_order.get("orderId") is not None:
+            queried_order = await self.client.query_order(
+                symbol, int(opening_order["orderId"])
+            )
+            entry_fill_price = self._fill_price(queried_order)
+        if not self.client.dry_run and entry_fill_price is None:
+            raise RuntimeError("Binance market opening order has no fill price")
         after = await self.client.get_position(symbol)
         return ExecutionResult(
             summary=(
-                f"{target} LIMIT GTC order submitted for {quantity} {symbol} "
-                f"at {normalized_price}"
+                f"{target} MARKET order submitted for {quantity} {symbol}"
+                + (
+                    f" at average fill price {entry_fill_price}"
+                    if entry_fill_price is not None
+                    else ""
+                )
             ),
             position_before=self._position_dict(before),
             position_after=self._position_dict(after),
             binance_responses=responses,
+            entry_fill_price=entry_fill_price,
         )
 
     async def reduce_order(

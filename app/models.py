@@ -73,3 +73,4 @@ class ExecutionResult(BaseModel):
     position_before: dict[str, Any]
     position_after: dict[str, Any]
     binance_responses: list[dict[str, Any]] = Field(default_factory=list)
+    entry_fill_price: Decimal | None = None

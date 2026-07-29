@@ -24,61 +24,67 @@ def make_client(positions: list[Position]):
     client.cancel_all_open_orders.return_value = {"code": 200}
     client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
-    client.place_market_order.return_value = {"orderId": 1}
+    client.place_market_order.return_value = {
+        "orderId": 1,
+        "status": "FILLED",
+        "avgPrice": "40050",
+    }
     client.place_limit_order.return_value = {"orderId": 2}
     client.place_reduce_only_limit_order.return_value = {"orderId": 3, "reduceOnly": True}
     return client
 
 
 @pytest.mark.asyncio
-async def test_buy_open_from_flat_places_limit_buy():
+async def test_buy_open_from_flat_places_market_buy():
     client = make_client([position(0), position(0)])
     await RiskEngine(client, Settings()).open_order(
         "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
+    client.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.002"), False
     )
-    client.place_market_order.assert_not_awaited()
+    client.place_limit_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_sell_open_from_flat_places_limit_sell():
+async def test_sell_open_from_flat_places_market_sell():
     client = make_client([position(0), position(0)])
     await RiskEngine(client, Settings()).open_order(
         "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
+    client.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "SELL", Decimal("0.002"), False
     )
 
 
 @pytest.mark.asyncio
-async def test_buy_open_while_short_market_closes_then_places_limit_buy():
+async def test_buy_open_while_short_market_closes_then_places_market_buy():
     client = make_client([position(-0.004), position(0), position(0)])
     await RiskEngine(client, Settings()).open_order(
         "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
     )
-    client.place_market_order.assert_awaited_once_with(
+    assert client.place_market_order.await_args_list[0].args == (
         "BTCUSDT", "BUY", Decimal("0.004"), True
     )
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
+    assert client.place_market_order.await_args_list[1].args == (
+        "BTCUSDT", "BUY", Decimal("0.002"), False
     )
+    client.place_limit_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_sell_open_while_long_market_closes_then_places_limit_sell():
+async def test_sell_open_while_long_market_closes_then_places_market_sell():
     client = make_client([position(0.004), position(0), position(0)])
     await RiskEngine(client, Settings()).open_order(
         "BTCUSDT", "sell", Decimal("40000"), Decimal("80")
     )
-    client.place_market_order.assert_awaited_once_with(
+    assert client.place_market_order.await_args_list[0].args == (
         "BTCUSDT", "SELL", Decimal("0.004"), True
     )
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "SELL", Decimal("0.002"), Decimal("40000")
+    assert client.place_market_order.await_args_list[1].args == (
+        "BTCUSDT", "SELL", Decimal("0.002"), False
     )
+    client.place_limit_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -134,13 +140,13 @@ def test_quantity_rounding_rounds_down():
 
 
 @pytest.mark.asyncio
-async def test_notional_amount_and_price_round_down_to_filters():
+async def test_market_quantity_rounds_down_from_webhook_reference_price():
     client = make_client([position(0), position(0)])
     await RiskEngine(client, Settings()).open_order(
         "BTCUSDT", "buy", Decimal("40000.19"), Decimal("116")
     )
-    client.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000.10")
+    client.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.002"), False
     )
 
 
@@ -157,3 +163,23 @@ async def test_allow_add_false_preserves_existing_position_protection():
     client.cancel_all_algo_open_orders.assert_not_awaited()
     client.cancel_all_open_orders.assert_not_awaited()
     client.place_limit_order.assert_not_awaited()
+    client.place_market_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_market_fill_price_falls_back_to_cumulative_quote():
+    client = make_client([position(0), position(0)])
+    client.place_market_order.return_value = {
+        "orderId": 7,
+        "status": "FILLED",
+        "avgPrice": "0",
+        "executedQty": "0.002",
+        "cumQuote": "80.2",
+    }
+
+    result = await RiskEngine(client, Settings()).open_order(
+        "BTCUSDT", "buy", Decimal("40000"), Decimal("80")
+    )
+
+    assert result.entry_fill_price == Decimal("40100")
+    client.query_order.assert_not_awaited()

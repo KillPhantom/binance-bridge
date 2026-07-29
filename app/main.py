@@ -212,13 +212,31 @@ def create_app(
                     order_id = order_response.get("orderId")
                     if order_id is None:
                         raise RuntimeError("Binance opening order response has no orderId")
+                    if result.entry_fill_price is None:
+                        raise RuntimeError(
+                            "Binance opening order response has no fill price"
+                        )
+                    stop_loss_price = (
+                        result.entry_fill_price
+                        + account_signal.stop_loss_price
+                        - account_signal.price
+                    )
+                    take_profit_price = (
+                        result.entry_fill_price
+                        + account_signal.take_profit_price
+                        - account_signal.price
+                    )
+                    if stop_loss_price <= 0 or take_profit_price <= 0:
+                        raise RuntimeError(
+                            "market-adjusted protection price must be positive"
+                        )
                     runtime.store.create_bracket(
                         account_signal.event_id,
                         account_signal.symbol,
                         int(order_id),
                         account_signal.side.upper(),
-                        str(account_signal.stop_loss_price),
-                        str(account_signal.take_profit_price),
+                        str(stop_loss_price),
+                        str(take_profit_price),
                     )
 
             result = await runtime.engine.handle_signal(account_signal, finalize_execution)

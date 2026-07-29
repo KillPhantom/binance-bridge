@@ -4,6 +4,10 @@ from decimal import Decimal
 from app.config import Settings
 
 
+def test_algo_orders_use_contract_price_by_default():
+    assert Settings().algo_working_type == "CONTRACT_PRICE"
+
+
 def test_invalid_dry_run_value_fails_closed(monkeypatch):
     monkeypatch.setenv("DRY_RUN", "treu")
     with pytest.raises(ValueError, match="DRY_RUN"):

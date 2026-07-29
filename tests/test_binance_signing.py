@@ -197,6 +197,7 @@ async def test_close_position_algo_uses_current_futures_algo_endpoint():
     assert params["algoType"] == "CONDITIONAL"
     assert params["positionSide"] == "BOTH"
     assert params["closePosition"] is True
+    assert params["workingType"] == "CONTRACT_PRICE"
     assert "quantity" not in params
     assert "reduceOnly" not in params
     await client.close()

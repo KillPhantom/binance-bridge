@@ -10,11 +10,15 @@ from app.main import create_app
 from app.models import Position
 
 
-def make_app(tmp_path, client=None):
+def make_app(tmp_path, client=None, *, dry_run=True):
     settings = Settings(
         webhook_secret="test-secret",
+        binance_api_key="key" if not dry_run else "",
+        binance_api_secret="secret" if not dry_run else "",
         allowed_symbols=frozenset({"BTCUSDT"}),
         sqlite_path=tmp_path / "events.db",
+        dry_run=dry_run,
+        bracket_poll_interval=60,
     )
     client = client or AsyncMock()
     client.dry_run = False
@@ -30,7 +34,11 @@ def make_app(tmp_path, client=None):
     client.cancel_all_open_orders.return_value = {"code": 200}
     client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
-    client.place_market_order.return_value = {"orderId": 42}
+    client.place_market_order.return_value = {
+        "orderId": 42,
+        "status": "FILLED",
+        "avgPrice": "40050",
+    }
     client.place_limit_order.return_value = {"orderId": 43}
     client.place_reduce_only_limit_order.return_value = {
         "orderId": 44,
@@ -55,7 +63,11 @@ def make_binance_mock():
     client.cancel_all_open_orders.return_value = {"code": 200}
     client.cancel_all_algo_open_orders.return_value = {"code": 200}
     client.cancel_opening_orders.return_value = {"canceledOrderIds": []}
-    client.place_market_order.return_value = {"orderId": 42}
+    client.place_market_order.return_value = {
+        "orderId": 42,
+        "status": "FILLED",
+        "avgPrice": "40050",
+    }
     client.place_limit_order.return_value = {"orderId": 43}
     client.place_reduce_only_limit_order.return_value = {
         "orderId": 44,
@@ -92,7 +104,7 @@ def test_duplicate_success_does_not_place_duplicate_order(tmp_path):
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.json()["duplicate"] is True
-    assert binance.place_limit_order.await_count == 1
+    assert binance.place_market_order.await_count == 1
 
 
 def test_webhook_forwards_to_all_configured_accounts(tmp_path):
@@ -114,8 +126,8 @@ def test_webhook_forwards_to_all_configured_accounts(tmp_path):
 
     assert response.status_code == 200
     assert response.json()["summary"] == "forwarded to 2 accounts"
-    primary.place_limit_order.assert_awaited_once()
-    copy.place_limit_order.assert_awaited_once()
+    primary.place_market_order.assert_awaited_once()
+    copy.place_market_order.assert_awaited_once()
 
 
 def test_webhook_applies_account_amount_multiplier(tmp_path):
@@ -141,11 +153,11 @@ def test_webhook_applies_account_amount_multiplier(tmp_path):
         response = http.post("/webhook/tradingview", json=payload())
 
     assert response.status_code == 200
-    primary.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.002"), Decimal("40000")
+    primary.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.002"), False
     )
-    copy.place_limit_order.assert_awaited_once_with(
-        "BTCUSDT", "BUY", Decimal("0.02"), Decimal("40000")
+    copy.place_market_order.assert_awaited_once_with(
+        "BTCUSDT", "BUY", Decimal("0.02"), False
     )
 
 
@@ -223,9 +235,9 @@ def test_webhook_only_forwards_to_accounts_allowing_symbol(tmp_path):
     assert response.status_code == 200
     assert response.json()["summary"] == "forwarded to 1 accounts"
     assert response.json()["accounts"][0]["account"] == "primary"
-    primary.place_limit_order.assert_awaited_once()
-    copy1.place_limit_order.assert_not_awaited()
-    copy2.place_limit_order.assert_not_awaited()
+    primary.place_market_order.assert_awaited_once()
+    copy1.place_market_order.assert_not_awaited()
+    copy2.place_market_order.assert_not_awaited()
 
 
 def test_wrong_token_rejected(tmp_path):
@@ -233,7 +245,7 @@ def test_wrong_token_rejected(tmp_path):
     with TestClient(app) as http:
         response = http.post("/webhook/tradingview", json=payload(token="wrong"))
     assert response.status_code == 401
-    binance.place_limit_order.assert_not_awaited()
+    binance.place_market_order.assert_not_awaited()
 
 
 def test_unsupported_symbol_rejected(tmp_path):
@@ -241,7 +253,7 @@ def test_unsupported_symbol_rejected(tmp_path):
     with TestClient(app) as http:
         response = http.post("/webhook/tradingview", json=payload(symbol="DOGEUSDT"))
     assert response.status_code == 400
-    binance.place_limit_order.assert_not_awaited()
+    binance.place_market_order.assert_not_awaited()
 
 
 def test_signal_requires_exact_simple_order_schema(tmp_path):
@@ -251,7 +263,7 @@ def test_signal_requires_exact_simple_order_schema(tmp_path):
             "/webhook/tradingview", json=payload(positionSide="LONG")
         )
     assert response.status_code == 400
-    binance.place_limit_order.assert_not_awaited()
+    binance.place_market_order.assert_not_awaited()
 
 
 def test_open_signal_requires_valid_stop_loss_and_take_profit(tmp_path):
@@ -271,7 +283,7 @@ def test_open_signal_requires_valid_stop_loss_and_take_profit(tmp_path):
         )
     assert missing.status_code == 400
     assert inverted.status_code == 400
-    binance.place_limit_order.assert_not_awaited()
+    binance.place_market_order.assert_not_awaited()
 
 
 def test_accepts_tradingview_compatibility_fields(tmp_path):
@@ -295,7 +307,7 @@ def test_accepts_tradingview_compatibility_fields(tmp_path):
             ),
         )
     assert response.status_code == 200
-    binance.place_limit_order.assert_not_awaited()
+    binance.place_market_order.assert_not_awaited()
     binance.place_reduce_only_limit_order.assert_awaited_once_with(
         "BTCUSDT", "SELL", Decimal("0.001"), Decimal("64043.90")
     )
@@ -309,7 +321,7 @@ def test_ignores_extra_legacy_fields_even_when_they_conflict(tmp_path):
             json=payload(action="sell", notional=81, arbitraryLegacyField="ignored"),
         )
     assert response.status_code == 200
-    binance.place_limit_order.assert_awaited_once()
+    binance.place_market_order.assert_awaited_once()
 
 
 def test_reduce_only_sell_dispatches_limit_long_reduction(tmp_path):
@@ -381,7 +393,11 @@ def test_live_opening_persists_bracket_before_webhook_success(tmp_path):
         "LOT_SIZE": {"stepSize": "0.001", "minQty": "0.001"},
         "PRICE_FILTER": {"tickSize": "0.10", "minPrice": "0.10"},
     }
-    binance.place_limit_order.return_value = {"orderId": 501}
+    binance.place_market_order.return_value = {
+        "orderId": 501,
+        "status": "FILLED",
+        "avgPrice": "40050",
+    }
     app = create_app(settings, store, binance)
 
     with TestClient(app) as http:
@@ -391,5 +407,34 @@ def test_live_opening_persists_bracket_before_webhook_success(tmp_path):
     assert response.status_code == 200
     assert len(brackets) == 1
     assert brackets[0]["entry_order_id"] == 501
-    assert brackets[0]["stop_loss_price"] == "39000"
-    assert brackets[0]["take_profit_price"] == "41000"
+    assert brackets[0]["stop_loss_price"] == "39050"
+    assert brackets[0]["take_profit_price"] == "41050"
+
+
+def test_short_opening_preserves_absolute_protection_distances_from_market_fill(
+    tmp_path,
+):
+    app, store, binance = make_app(tmp_path, dry_run=False)
+    binance.place_market_order.return_value = {
+        "orderId": 601,
+        "status": "FILLED",
+        "avgPrice": "39875",
+    }
+
+    with TestClient(app) as http:
+        response = http.post(
+            "/webhook/tradingview",
+            json=payload(
+                side="sell",
+                price="40000",
+                stopLossPrice="40600",
+                takeProfitPrice="38500",
+            ),
+        )
+        brackets = store.list_active_brackets()
+
+    assert response.status_code == 200
+    assert len(brackets) == 1
+    assert brackets[0]["entry_side"] == "SELL"
+    assert brackets[0]["stop_loss_price"] == "40475"
+    assert brackets[0]["take_profit_price"] == "38375"
