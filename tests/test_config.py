@@ -54,6 +54,7 @@ def test_named_binance_accounts_are_read_from_env(monkeypatch):
 
 
 def test_short_manual_token_is_rejected(monkeypatch):
+    monkeypatch.delenv("BINANCE_ACCOUNT_NAMES", raising=False)
     monkeypatch.setenv("BINANCE_MANUAL_TOKEN", "too-short")
     with pytest.raises(ValueError, match="at least 32"):
         Settings.from_env().effective_binance_accounts()
