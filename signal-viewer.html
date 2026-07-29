@@ -293,6 +293,30 @@
       border-color: #fedf89;
     }
 
+    .fill_filled {
+      color: var(--ok);
+      background: #ecfdf3;
+      border-color: #abefc6;
+    }
+
+    .fill_partial {
+      color: var(--warn);
+      background: #fffaeb;
+      border-color: #fedf89;
+    }
+
+    .fill_unfilled {
+      color: var(--danger);
+      background: #fef3f2;
+      border-color: #fecdca;
+    }
+
+    .fill_na {
+      color: var(--muted);
+      background: var(--panel-soft);
+      border-color: var(--line);
+    }
+
     .muted {
       color: var(--muted);
     }
@@ -470,6 +494,7 @@
                   <th>Stop Loss Price</th>
                   <th>Amount</th>
                   <th>Status</th>
+                  <th>Fill</th>
                   <th>Strategy</th>
                   <th>Event ID</th>
                 </tr>
@@ -696,6 +721,13 @@
 
       state.brackets = [];
 
+      state.fillStatus = {};
+      if (tables.includes("signal_fill_status")) {
+        rowsFromQuery(state.db, "SELECT * FROM signal_fill_status").forEach(row => {
+          state.fillStatus[row.event_id] = row;
+        });
+      }
+
       state.selectedId = state.events[0]?.id ?? null;
       rebuildFilters();
       render();
@@ -751,6 +783,18 @@
       return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(raw || "-")}</span>`;
     }
 
+    function fillBadge(row) {
+      const fill = state.fillStatus?.[row.event_id];
+      if (!fill) return `<span class="badge fill_na">-</span>`;
+      const clsMap = { "已成交": "fill_filled", "部分成交": "fill_partial", "未成交": "fill_unfilled" };
+      const cls = clsMap[fill.fill_status] || "fill_na";
+      const pct = (fill.fill_ratio !== null && fill.fill_ratio !== undefined && fill.fill_status !== "已成交")
+        ? ` ${Math.round(fill.fill_ratio * 100)}%`
+        : "";
+      const title = fill.note ? ` title="${escapeHtml(fill.note)}"` : "";
+      return `<span class="badge ${cls}"${title}>${escapeHtml(fill.fill_status)}${pct}</span>`;
+    }
+
     function renderEvents(events) {
       if (!els.eventsBody) return;
       els.eventsBody.innerHTML = events.map(row => {
@@ -768,11 +812,12 @@
             <td>${escapeHtml(formatNumber(row.stop_loss_price))}</td>
             <td>${escapeHtml(formatNumber(row.amount ?? row.notional))}</td>
             <td>${badge(row.status)}</td>
+            <td>${fillBadge(row)}</td>
             <td>${escapeHtml(strategy)}</td>
             <td class="muted">${escapeHtml(row.event_id)}</td>
           </tr>
         `;
-      }).join("") || `<tr><td colspan="11" class="muted">No signals match the current filters.</td></tr>`;
+      }).join("") || `<tr><td colspan="12" class="muted">No signals match the current filters.</td></tr>`;
 
       els.eventsBody.querySelectorAll("tr[data-id]").forEach(row => {
         row.addEventListener("click", () => {
@@ -826,6 +871,8 @@
           <dt>Price</dt><dd>${escapeHtml(formatNumber(row.price))}</dd>
           <dt>Amount</dt><dd>${escapeHtml(formatNumber(row.amount ?? row.notional))}</dd>
           <dt>Status</dt><dd>${badge(row.status)}</dd>
+          <dt>Fill Status</dt><dd>${fillBadge(row)}</dd>
+          <dt>Filled / Intended</dt><dd>${escapeHtml(formatNumber(state.fillStatus?.[row.event_id]?.filled_qty))} / ${escapeHtml(formatNumber(state.fillStatus?.[row.event_id]?.intended_qty))}</dd>
           <dt>Strategy</dt><dd>${escapeHtml(payload.strategy ?? "-")}</dd>
           <dt>Source</dt><dd>${escapeHtml(payload.source ?? "-")}</dd>
           <dt>Stop Loss</dt><dd>${escapeHtml(formatNumber(payload.stopLossPrice ?? matchingBracket?.stop_loss_price))}</dd>
